@@ -803,6 +803,196 @@ function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	return 0;
 }
 
+function pbb_gc_get_flamingo_field_value(int $post_id, string $field_key): string {
+	if ($post_id <= 0 || $field_key === '') return '';
+
+	$field_key = strtolower($field_key);
+	$direct = get_post_meta($post_id, $field_key, true);
+	if (is_string($direct) && $direct !== '') {
+		return $direct;
+	}
+
+	$alts = ['_fields', 'fields', '_flamingo_fields'];
+	foreach ($alts as $key) {
+		$fields = get_post_meta($post_id, $key, true);
+		if (!is_array($fields)) continue;
+
+		foreach ($fields as $name => $value) {
+			$normalized = strtolower((string)$name);
+			$normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized);
+			$normalized = trim($normalized, '_');
+			if ($normalized !== $field_key) continue;
+
+			if (is_array($value) && isset($value['value'])) {
+				return (string)$value['value'];
+			}
+			if (is_string($value)) {
+				return $value;
+			}
+		}
+	}
+
+	return '';
+}
+
+function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
+	$serial_keys = [
+		'serial_number',
+		'_field_serial_number',
+		'field_serial_number',
+		'serial-number',
+		'serialnumber',
+	];
+
+	foreach ($serial_keys as $key) {
+		$value = get_post_meta($post_id, $key, true);
+		if (is_string($value) && $value !== '') {
+			$serial = (int)preg_replace('/[^0-9]/', '', $value);
+			if ($serial > 0) return $serial;
+		}
+	}
+
+	return 0;
+}
+
+function pbb_gc_get_order_items_summary(int $order_id): string {
+	if ($order_id <= 0) return '';
+	$order = wc_get_order($order_id);
+	if (!$order) return '';
+
+	$lines = [];
+	foreach ($order->get_items() as $item) {
+		$name = $item->get_name();
+		$qty = (int)$item->get_quantity();
+		$total = (float)$order->get_line_total($item, true);
+		$lines[] = sprintf(
+			'%s × %d (%s)',
+			$name,
+			$qty,
+			wc_price($total)
+		);
+	}
+
+	return implode('; ', $lines);
+}
+
+function pbb_gc_get_balance_by_serial(int $serial_raw): ?array {
+	if ($serial_raw <= 0) return null;
+
+	global $wpdb;
+	$table = pbb_gc_table();
+
+	$row = $wpdb->get_row(
+		$wpdb->prepare("SELECT * FROM {$table} WHERE serial_raw = %d LIMIT 1", $serial_raw),
+		ARRAY_A
+	);
+
+	return $row ?: null;
+}
+
+function pbb_gc_render_frontend_ledger(): string {
+	$search_raw = isset($_GET['pbb_gc_search']) ? (string)wp_unslash($_GET['pbb_gc_search']) : '';
+	$search = strtolower(trim($search_raw));
+
+	$q = new WP_Query([
+		'post_type'      => 'flamingo_inbound',
+		'posts_per_page' => 200,
+		'post_status'    => 'publish',
+		'orderby'        => 'date',
+		'order'          => 'DESC',
+	]);
+
+	$rows = [];
+	if ($q->have_posts()) {
+		foreach ($q->posts as $post) {
+			$post_id = (int)$post->ID;
+			$serial_raw = pbb_gc_get_flamingo_serial_raw($post_id);
+			if ($serial_raw <= 0) continue;
+
+			$balance = pbb_gc_get_balance_by_serial($serial_raw);
+			$last_order_id = $balance ? (int)($balance['last_order_id'] ?? 0) : 0;
+
+			$to = pbb_gc_get_flamingo_field_value($post_id, 'to');
+			$from = pbb_gc_get_flamingo_field_value($post_id, 'from');
+			$recipient_email = pbb_gc_get_flamingo_field_value($post_id, 'recipient_email');
+			$date = get_post_meta($post_id, 'date', true);
+			if (!is_string($date) || $date === '') {
+				$date = get_the_date('Y-m-d', $post_id);
+			}
+
+			$receipt = $last_order_id ? pbb_gc_get_order_items_summary($last_order_id) : '';
+			$cert_code = pbb_gc_serial_to_code($serial_raw);
+
+			$search_haystack = strtolower(implode(' ', [
+				$cert_code,
+				(string)$serial_raw,
+				$to,
+				$from,
+				$recipient_email,
+			]));
+
+			if ($search !== '' && strpos($search_haystack, $search) === false) {
+				continue;
+			}
+
+			$rows[] = [
+				'cert_code' => $cert_code,
+				'to' => $to,
+				'from' => $from,
+				'recipient_email' => $recipient_email,
+				'date' => $date,
+				'receipt' => $receipt,
+			];
+		}
+	}
+
+	ob_start();
+	?>
+	<div class="pbb-gc-ledger">
+		<form method="get" style="margin:0 0 16px;">
+			<label for="pbb_gc_search" style="display:block;font-weight:600;margin-bottom:6px;">Search certificates</label>
+			<input type="text" id="pbb_gc_search" name="pbb_gc_search" value="<?php echo esc_attr($search_raw); ?>" placeholder="Search by certificate, recipient, sender, or email" style="max-width:360px;width:100%;padding:6px 8px;margin-right:8px;">
+			<button type="submit" class="button">Search</button>
+		</form>
+
+		<table class="shop_table shop_table_responsive">
+			<thead>
+				<tr>
+					<th>Certificate</th>
+					<th>To</th>
+					<th>From</th>
+					<th>Recipient Email</th>
+					<th>Date</th>
+					<th>Receipt Items</th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php if (!$rows) : ?>
+					<tr>
+						<td colspan="6">No certificates found.</td>
+					</tr>
+				<?php else : ?>
+					<?php foreach ($rows as $row) : ?>
+						<tr>
+							<td><?php echo esc_html($row['cert_code']); ?></td>
+							<td><?php echo esc_html($row['to']); ?></td>
+							<td><?php echo esc_html($row['from']); ?></td>
+							<td><?php echo esc_html($row['recipient_email']); ?></td>
+							<td><?php echo esc_html($row['date']); ?></td>
+							<td><?php echo esc_html($row['receipt']); ?></td>
+						</tr>
+					<?php endforeach; ?>
+				<?php endif; ?>
+			</tbody>
+		</table>
+	</div>
+	<?php
+
+	return (string)ob_get_clean();
+}
+
+add_shortcode('pbb_gc_frontend_ledger', 'pbb_gc_render_frontend_ledger');
+
 /** =========================
  *  6) (OPTIONAL) ADMIN: simple balances list
  *  ========================= */
