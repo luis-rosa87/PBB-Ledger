@@ -369,7 +369,9 @@ add_action('woocommerce_cart_calculate_fees', function () {
     $remaining = (float)$balance['remaining_amount'];
     if ($remaining <= 0) return;
 
-    $cart_total = (float)WC()->cart->get_total('edit'); // numeric total
+    $cart_total = (float)WC()->cart->get_cart_contents_total();
+    $cart_total += (float)WC()->cart->get_shipping_total();
+    $cart_total += (float)WC()->cart->get_taxes_total();
     if ($cart_total <= 0) return;
 
     $apply = min($remaining, $cart_total);
