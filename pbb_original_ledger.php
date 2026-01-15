@@ -856,9 +856,6 @@ function pbb_gc_extract_serial_from_text(string $text): int {
 	if (preg_match('/serial[_\-\s]?number[^0-9]*([0-9]+)/i', $text, $m)) {
 		return (int)$m[1];
 	}
-	if (preg_match('/\b([0-9]{1,10})\b/', $text, $m)) {
-		return (int)$m[1];
-	}
 	return 0;
 }
 
@@ -968,6 +965,9 @@ function pbb_gc_render_frontend_ledger(): string {
 
 			$receipt = $last_order_id ? pbb_gc_get_order_items_summary($last_order_id) : '';
 			$cert_code = pbb_gc_serial_to_code($serial_raw);
+			$gift_amount = pbb_gc_extract_gift_amount_from_flamingo_post($post_id);
+			$original_amount = $balance ? (float)($balance['original_amount'] ?? 0) : $gift_amount;
+			$remaining_amount = $balance ? (float)($balance['remaining_amount'] ?? 0) : $gift_amount;
 
 			$search_haystack = strtolower(implode(' ', [
 				$cert_code,
@@ -987,6 +987,8 @@ function pbb_gc_render_frontend_ledger(): string {
 				'from' => $from,
 				'recipient_email' => $recipient_email,
 				'date' => $date,
+				'original' => $original_amount,
+				'remaining' => $remaining_amount,
 				'receipt' => $receipt,
 			];
 		}
@@ -1009,13 +1011,15 @@ function pbb_gc_render_frontend_ledger(): string {
 					<th>From</th>
 					<th>Recipient Email</th>
 					<th>Date</th>
+					<th>Original</th>
+					<th>Remaining</th>
 					<th>Receipt Items</th>
 				</tr>
 			</thead>
 			<tbody>
 				<?php if (!$rows) : ?>
 					<tr>
-						<td colspan="6">No certificates found.</td>
+						<td colspan="8">No certificates found.</td>
 					</tr>
 				<?php else : ?>
 					<?php foreach ($rows as $row) : ?>
@@ -1025,6 +1029,8 @@ function pbb_gc_render_frontend_ledger(): string {
 							<td><?php echo esc_html($row['from']); ?></td>
 							<td><?php echo esc_html($row['recipient_email']); ?></td>
 							<td><?php echo esc_html($row['date']); ?></td>
+							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['original'])); ?></td>
+							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['remaining'])); ?></td>
 							<td><?php echo esc_html($row['receipt']); ?></td>
 						</tr>
 					<?php endforeach; ?>
