@@ -558,18 +558,30 @@ function pbb_gc_find_flamingo_by_serial(int $serial, string $entered_code = ''):
 		$entered_code,
 	]));
 
+	$serial_keys = [
+		'serial_number',
+		'_field_serial_number',
+		'field_serial_number',
+		'serial-number',
+		'serialnumber',
+	];
+	$serial_queries = [];
+	foreach ($serial_keys as $serial_key) {
+		$serial_queries[] = [
+			'key'     => $serial_key,
+			'value'   => $candidates,
+			'compare' => 'IN',
+		];
+	}
+
 	// Flamingo uses a CPT 'flamingo_inbound'
+	$meta_query = array_merge(['relation' => 'OR'], $serial_queries);
+
 	$q = new WP_Query([
 		'post_type'      => 'flamingo_inbound',
 		'posts_per_page' => 1,
 		'post_status'    => 'publish',
-		'meta_query'     => [
-			[
-				'key'     => 'serial_number',
-				'value'   => $candidates,
-				'compare' => 'IN',
-			],
-		],
+		'meta_query'     => $meta_query,
 		'orderby' => 'date',
 		'order'   => 'DESC',
 	]);
@@ -599,6 +611,31 @@ function pbb_gc_extract_money_from_text($text): float {
 	return 0;
 }
 
+function pbb_gc_find_gift_amount_in_fields($fields): float {
+	if (!is_array($fields)) return 0;
+
+	foreach ($fields as $key => $value) {
+		$normalized_key = strtolower((string)$key);
+		$normalized_key = preg_replace('/[^a-z0-9]+/', '_', $normalized_key);
+		$normalized_key = trim($normalized_key, '_');
+
+		if (in_array($normalized_key, ['gift_amount', 'giftamount', 'gift_certificate_amount'], true)) {
+			if (is_array($value) && isset($value['value'])) {
+				$value = $value['value'];
+			}
+			$val = pbb_gc_money_to_decimal($value);
+			if ($val > 0) return $val;
+		}
+
+		if (is_array($value)) {
+			$nested = pbb_gc_find_gift_amount_in_fields($value);
+			if ($nested > 0) return $nested;
+		}
+	}
+
+	return 0;
+}
+
 function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	if ($post_id <= 0) return 0;
 
@@ -608,9 +645,11 @@ function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	if ($val > 0) return $val;
 
 	// Other common Flamingo keys (just in case)
-	$alts = ['_field_gift_amount', '_fields', 'fields', '_flamingo_fields', 'message'];
+	$alts = ['_field_gift_amount', '_field_gift-amount', '_fields', 'fields', '_flamingo_fields', 'message'];
 	foreach ($alts as $k) {
 		$v = get_post_meta($post_id, $k, true);
+		$nested = pbb_gc_find_gift_amount_in_fields($v);
+		if ($nested > 0) return $nested;
 		if (is_array($v) && isset($v['gift_amount'])) {
 			$val = pbb_gc_money_to_decimal($v['gift_amount']);
 			if ($val > 0) return $val;
