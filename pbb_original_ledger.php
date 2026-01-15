@@ -803,10 +803,39 @@ function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	return 0;
 }
 
+function pbb_gc_normalize_field_key(string $field_key): string {
+	$field_key = strtolower($field_key);
+	$field_key = preg_replace('/[^a-z0-9]+/', '_', $field_key);
+	return trim($field_key, '_');
+}
+
+function pbb_gc_find_field_value_in_array($fields, string $field_key): string {
+	if (!is_array($fields)) return '';
+
+	foreach ($fields as $name => $value) {
+		$normalized = pbb_gc_normalize_field_key((string)$name);
+		if ($normalized === $field_key) {
+			if (is_array($value) && isset($value['value'])) {
+				return (string)$value['value'];
+			}
+			if (is_string($value)) {
+				return $value;
+			}
+		}
+
+		if (is_array($value)) {
+			$nested = pbb_gc_find_field_value_in_array($value, $field_key);
+			if ($nested !== '') return $nested;
+		}
+	}
+
+	return '';
+}
+
 function pbb_gc_get_flamingo_field_value(int $post_id, string $field_key): string {
 	if ($post_id <= 0 || $field_key === '') return '';
 
-	$field_key = strtolower($field_key);
+	$field_key = pbb_gc_normalize_field_key($field_key);
 	$direct = get_post_meta($post_id, $field_key, true);
 	if (is_string($direct) && $direct !== '') {
 		return $direct;
@@ -815,24 +844,22 @@ function pbb_gc_get_flamingo_field_value(int $post_id, string $field_key): strin
 	$alts = ['_fields', 'fields', '_flamingo_fields'];
 	foreach ($alts as $key) {
 		$fields = get_post_meta($post_id, $key, true);
-		if (!is_array($fields)) continue;
-
-		foreach ($fields as $name => $value) {
-			$normalized = strtolower((string)$name);
-			$normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized);
-			$normalized = trim($normalized, '_');
-			if ($normalized !== $field_key) continue;
-
-			if (is_array($value) && isset($value['value'])) {
-				return (string)$value['value'];
-			}
-			if (is_string($value)) {
-				return $value;
-			}
-		}
+		$found = pbb_gc_find_field_value_in_array($fields, $field_key);
+		if ($found !== '') return $found;
 	}
 
 	return '';
+}
+
+function pbb_gc_extract_serial_from_text(string $text): int {
+	if ($text === '') return 0;
+	if (preg_match('/serial[_\-\s]?number[^0-9]*([0-9]+)/i', $text, $m)) {
+		return (int)$m[1];
+	}
+	if (preg_match('/\b([0-9]{1,10})\b/', $text, $m)) {
+		return (int)$m[1];
+	}
+	return 0;
 }
 
 function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
@@ -848,6 +875,25 @@ function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
 		$value = get_post_meta($post_id, $key, true);
 		if (is_string($value) && $value !== '') {
 			$serial = (int)preg_replace('/[^0-9]/', '', $value);
+			if ($serial > 0) return $serial;
+		}
+	}
+
+	$alts = ['_fields', 'fields', '_flamingo_fields'];
+	foreach ($alts as $key) {
+		$fields = get_post_meta($post_id, $key, true);
+		$found = pbb_gc_find_field_value_in_array($fields, 'serial_number');
+		if ($found !== '') {
+			$serial = (int)preg_replace('/[^0-9]/', '', $found);
+			if ($serial > 0) return $serial;
+		}
+	}
+
+	$all_meta = get_post_meta($post_id);
+	foreach ($all_meta as $vals) {
+		foreach ((array)$vals as $maybe) {
+			if (!is_string($maybe)) continue;
+			$serial = pbb_gc_extract_serial_from_text($maybe);
 			if ($serial > 0) return $serial;
 		}
 	}
@@ -915,8 +961,8 @@ function pbb_gc_render_frontend_ledger(): string {
 			$to = pbb_gc_get_flamingo_field_value($post_id, 'to');
 			$from = pbb_gc_get_flamingo_field_value($post_id, 'from');
 			$recipient_email = pbb_gc_get_flamingo_field_value($post_id, 'recipient_email');
-			$date = get_post_meta($post_id, 'date', true);
-			if (!is_string($date) || $date === '') {
+			$date = pbb_gc_get_flamingo_field_value($post_id, 'date');
+			if ($date === '') {
 				$date = get_the_date('Y-m-d', $post_id);
 			}
 
