@@ -942,7 +942,7 @@ function pbb_gc_render_frontend_ledger(): string {
 
 	$q = new WP_Query([
 		'post_type'      => 'flamingo_inbound',
-		'posts_per_page' => 200,
+		'posts_per_page' => -1,
 		'post_status'    => 'publish',
 		'orderby'        => 'date',
 		'order'          => 'DESC',
@@ -952,14 +952,15 @@ function pbb_gc_render_frontend_ledger(): string {
 	if ($q->have_posts()) {
 		foreach ($q->posts as $post_id) {
 			$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
-			if ($serial_raw <= 0) continue;
-			$cert_code = pbb_gc_serial_to_code($serial_raw);
-			if (isset($rows_by_code[$cert_code])) continue;
+			$cert_code = $serial_raw > 0 ? pbb_gc_serial_to_code($serial_raw) : '';
+			if ($cert_code && isset($rows_by_code[$cert_code])) {
+				continue;
+			}
 			$gift_amount = pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id);
 
 			$rows[] = [
-				'cert_code' => $cert_code,
-				'serial_raw' => $serial_raw,
+				'cert_code' => $cert_code !== '' ? $cert_code : '(missing)',
+				'serial_raw' => $serial_raw > 0 ? $serial_raw : 0,
 				'original_amount' => $gift_amount,
 				'remaining_amount' => $gift_amount,
 				'flamingo_post_id' => (int)$post_id,
