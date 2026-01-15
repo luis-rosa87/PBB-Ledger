@@ -523,8 +523,8 @@ function pbb_gc_get_or_create_balance_from_flamingo(string $entered_code): ?arra
 	$existing2 = pbb_gc_get_balance_row($canonical_code);
 	if ($existing2) return $existing2;
 
-	// Query Flamingo inbound posts by meta serial_number = $serial
-	$fl = pbb_gc_find_flamingo_by_serial($serial);
+	// Query Flamingo inbound posts by meta serial_number (supports multiple formats)
+	$fl = pbb_gc_find_flamingo_by_serial($serial, $entered_code);
 	if (!$fl) return null;
 
 	$gift_amount = pbb_gc_extract_gift_amount_from_flamingo_post($fl['post_id']);
@@ -544,8 +544,19 @@ function pbb_gc_get_or_create_balance_from_flamingo(string $entered_code): ?arra
 	return pbb_gc_get_balance_row($canonical_code);
 }
 
-function pbb_gc_find_flamingo_by_serial(int $serial): ?array {
+function pbb_gc_find_flamingo_by_serial(int $serial, string $entered_code = ''): ?array {
 	if ($serial <= 0) return null;
+
+	$entered_code = pbb_gc_normalize_code($entered_code);
+	$canonical_code = pbb_gc_serial_to_code($serial);
+	$serial_padded = str_pad((string)$serial, PBB_GC_PAD, '0', STR_PAD_LEFT);
+
+	$candidates = array_filter(array_unique([
+		(string)$serial,
+		$serial_padded,
+		$canonical_code,
+		$entered_code,
+	]));
 
 	// Flamingo uses a CPT 'flamingo_inbound'
 	$q = new WP_Query([
@@ -554,9 +565,9 @@ function pbb_gc_find_flamingo_by_serial(int $serial): ?array {
 		'post_status'    => 'publish',
 		'meta_query'     => [
 			[
-				'key'   => 'serial_number',
-				'value' => (string)$serial,
-				'compare' => '=',
+				'key'     => 'serial_number',
+				'value'   => $candidates,
+				'compare' => 'IN',
 			],
 		],
 		'orderby' => 'date',
@@ -580,6 +591,14 @@ function pbb_gc_find_flamingo_by_serial(int $serial): ?array {
  * Flamingo often stores fields in postmeta directly as the field name (gift_amount),
  * so we try that first. Then we fall back to scanning meta values for a $amount.
  */
+function pbb_gc_extract_money_from_text($text): float {
+	if (!is_string($text) || $text === '') return 0;
+	if (preg_match('/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/', $text, $m)) {
+		return (float)$m[1];
+	}
+	return 0;
+}
+
 function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	if ($post_id <= 0) return 0;
 
@@ -589,20 +608,28 @@ function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	if ($val > 0) return $val;
 
 	// Other common Flamingo keys (just in case)
-	$alts = ['_field_gift_amount', '_fields', 'fields', '_flamingo_fields'];
+	$alts = ['_field_gift_amount', '_fields', 'fields', '_flamingo_fields', 'message'];
 	foreach ($alts as $k) {
 		$v = get_post_meta($post_id, $k, true);
 		if (is_array($v) && isset($v['gift_amount'])) {
 			$val = pbb_gc_money_to_decimal($v['gift_amount']);
 			if ($val > 0) return $val;
 		}
-		if (is_string($v) && stripos($v, '$') !== false) {
-			// try to find first $xx in the string
-			if (preg_match('/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/', $v, $m)) {
-				$val = (float)$m[1];
-				if ($val > 0) return $val;
-			}
+		if (is_string($v)) {
+			$val = pbb_gc_extract_money_from_text($v);
+			if ($val > 0) return $val;
 		}
+	}
+
+	// Try post content/fields for any $amount in message bodies
+	$post_text_sources = [
+		get_post_field('post_content', $post_id),
+		get_post_field('post_excerpt', $post_id),
+		get_post_field('post_title', $post_id),
+	];
+	foreach ($post_text_sources as $text) {
+		$val = pbb_gc_extract_money_from_text($text);
+		if ($val > 0) return $val;
 	}
 
 	// Last resort: scan all meta values for a $amount
@@ -610,10 +637,8 @@ function pbb_gc_extract_gift_amount_from_flamingo_post(int $post_id): float {
 	foreach ($all as $key => $vals) {
 		foreach ((array)$vals as $maybe) {
 			if (!is_string($maybe)) continue;
-			if (preg_match('/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/', $maybe, $m)) {
-				$val = (float)$m[1];
-				if ($val > 0) return $val;
-			}
+			$val = pbb_gc_extract_money_from_text($maybe);
+			if ($val > 0) return $val;
 		}
 	}
 
