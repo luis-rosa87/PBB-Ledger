@@ -68,6 +68,7 @@ register_activation_hook(__FILE__, function () {
 		remaining_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
 		currency VARCHAR(8) NOT NULL DEFAULT 'USD',
 		flamingo_post_id BIGINT UNSIGNED NULL,
+		last_order_id BIGINT UNSIGNED NULL,
 		status VARCHAR(16) NOT NULL DEFAULT 'active',
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
@@ -434,6 +435,31 @@ function pbb_gc_deduct_on_paid($order_id) {
     }
 }
 
+/**
+ * Show remaining balance in customer emails when a certificate is used.
+ */
+add_action('woocommerce_email_after_order_table', function ($order, $sent_to_admin, $plain_text, $email) {
+	if ($sent_to_admin) return;
+	if (!$order instanceof WC_Order) return;
+
+	$code = (string)$order->get_meta('_pbb_gc_redeem_code');
+	if (!$code) return;
+
+	$balance = pbb_gc_get_balance_row($code);
+	if (!$balance) return;
+
+	$remaining = (float)$balance['remaining_amount'];
+	$label = 'Gift Certificate Remaining Balance';
+	$value = pbb_gc_decimal_to_money($remaining);
+
+	if ($plain_text) {
+		echo "\n{$label}: {$value}\n";
+		return;
+	}
+
+	echo '<p><strong>' . esc_html($label) . ':</strong> ' . esc_html($value) . '</p>';
+}, 20, 4);
+
 
 /** =========================
  *  5) DB + Flamingo lookup
@@ -481,20 +507,28 @@ function pbb_gc_insert_balance(array $data): bool {
 	return $ok;
 }
 
-function pbb_gc_update_remaining(string $cert_code, float $remaining): bool {
+function pbb_gc_update_remaining(string $cert_code, float $remaining, int $order_id = 0): bool {
 	global $wpdb;
 	$table = pbb_gc_table();
 
 	$cert_code = pbb_gc_normalize_code($cert_code);
 
+	$data = [
+		'remaining_amount' => max(0, $remaining),
+		'updated_at' => current_time('mysql'),
+	];
+	$formats = ['%f', '%s'];
+
+	if ($order_id > 0) {
+		$data['last_order_id'] = $order_id;
+		$formats[] = '%d';
+	}
+
 	return (bool)$wpdb->update(
 		$table,
-		[
-			'remaining_amount' => max(0, $remaining),
-			'updated_at' => current_time('mysql'),
-		],
+		$data,
 		['cert_code' => $cert_code],
-		['%f', '%s'],
+		$formats,
 		['%s']
 	);
 }
@@ -506,7 +540,7 @@ function pbb_gc_deduct_balance(string $cert_code, float $amount, int $order_id =
 	$remaining = (float)$row['remaining_amount'];
 	$new_remaining = $remaining - $amount;
 
-	return pbb_gc_update_remaining($row['cert_code'], $new_remaining);
+	return pbb_gc_update_remaining($row['cert_code'], $new_remaining, $order_id);
 }
 
 /**
@@ -795,18 +829,21 @@ function pbb_gc_admin_page() {
 	echo '<p>This table tracks remaining balance after first redemption. First redemption pulls original amount from Flamingo by serial_number.</p>';
 
 	echo '<table class="widefat striped"><thead><tr>';
-	echo '<th>Cert Code</th><th>Serial Raw</th><th>Original</th><th>Remaining</th><th>Flamingo Post</th><th>Updated</th>';
+	echo '<th>Cert Code</th><th>Serial Raw</th><th>Original</th><th>Remaining</th><th>Last Order</th><th>Flamingo Post</th><th>Updated</th>';
 	echo '</tr></thead><tbody>';
 
 	if (!$rows) {
-		echo '<tr><td colspan="6">No certificates recorded yet (they appear after first redemption).</td></tr>';
+		echo '<tr><td colspan="7">No certificates recorded yet (they appear after first redemption).</td></tr>';
 	} else {
 		foreach ($rows as $r) {
+			$order_id = isset($r['last_order_id']) ? (int)$r['last_order_id'] : 0;
+			$order_link = $order_id ? admin_url('post.php?post=' . $order_id . '&action=edit') : '';
 			echo '<tr>';
 			echo '<td>' . esc_html($r['cert_code']) . '</td>';
 			echo '<td>' . esc_html($r['serial_raw']) . '</td>';
 			echo '<td>' . esc_html(pbb_gc_decimal_to_money((float)$r['original_amount'])) . '</td>';
 			echo '<td>' . esc_html(pbb_gc_decimal_to_money((float)$r['remaining_amount'])) . '</td>';
+			echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html((string)$order_id) . '</a>' : '&mdash;') . '</td>';
 			echo '<td>' . esc_html((string)$r['flamingo_post_id']) . '</td>';
 			echo '<td>' . esc_html((string)$r['updated_at']) . '</td>';
 			echo '</tr>';
