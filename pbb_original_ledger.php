@@ -851,14 +851,6 @@ function pbb_gc_get_flamingo_field_value(int $post_id, string $field_key): strin
 	return '';
 }
 
-function pbb_gc_extract_serial_from_text(string $text): int {
-	if ($text === '') return 0;
-	if (preg_match('/serial[_\-\s]?number[^0-9]*([0-9]+)/i', $text, $m)) {
-		return (int)$m[1];
-	}
-	return 0;
-}
-
 function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
 	$serial_keys = [
 		'serial_number',
@@ -882,15 +874,6 @@ function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
 		$found = pbb_gc_find_field_value_in_array($fields, 'serial_number');
 		if ($found !== '') {
 			$serial = (int)preg_replace('/[^0-9]/', '', $found);
-			if ($serial > 0) return $serial;
-		}
-	}
-
-	$all_meta = get_post_meta($post_id);
-	foreach ($all_meta as $vals) {
-		foreach ((array)$vals as $maybe) {
-			if (!is_string($maybe)) continue;
-			$serial = pbb_gc_extract_serial_from_text($maybe);
 			if ($serial > 0) return $serial;
 		}
 	}
@@ -946,11 +929,14 @@ function pbb_gc_render_frontend_ledger(): string {
 	]);
 
 	$rows = [];
+	$seen_serials = [];
 	if ($q->have_posts()) {
 		foreach ($q->posts as $post) {
 			$post_id = (int)$post->ID;
 			$serial_raw = pbb_gc_get_flamingo_serial_raw($post_id);
 			if ($serial_raw <= 0) continue;
+			if (isset($seen_serials[$serial_raw])) continue;
+			$seen_serials[$serial_raw] = true;
 
 			$balance = pbb_gc_get_balance_by_serial($serial_raw);
 			$last_order_id = $balance ? (int)($balance['last_order_id'] ?? 0) : 0;
