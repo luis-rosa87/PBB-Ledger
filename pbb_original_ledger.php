@@ -1002,6 +1002,45 @@ function pbb_gc_render_frontend_ledger(): string {
 
 add_shortcode('pbb_gc_frontend_ledger', 'pbb_gc_render_frontend_ledger');
 
+function pbb_gc_render_flamingo_serials(): string {
+	$q = new WP_Query([
+		'post_type'      => 'flamingo_inbound',
+		'posts_per_page' => -1,
+		'post_status'    => 'publish',
+		'orderby'        => 'date',
+		'order'          => 'DESC',
+		'fields'         => 'ids',
+	]);
+
+	$serials = [];
+	if ($q->have_posts()) {
+		foreach ($q->posts as $post_id) {
+			$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
+			if ($serial_raw <= 0) continue;
+			$serials[] = pbb_gc_serial_to_code($serial_raw);
+		}
+	}
+
+	ob_start();
+	?>
+	<div class="pbb-gc-flamingo-serials">
+		<?php if (!$serials) : ?>
+			<p>No Flamingo serial numbers found.</p>
+		<?php else : ?>
+			<ul>
+				<?php foreach ($serials as $serial) : ?>
+					<li><?php echo esc_html($serial); ?></li>
+				<?php endforeach; ?>
+			</ul>
+		<?php endif; ?>
+	</div>
+	<?php
+
+	return (string)ob_get_clean();
+}
+
+add_shortcode('pbb_gc_flamingo_serials', 'pbb_gc_render_flamingo_serials');
+
 /** =========================
  *  6) (OPTIONAL) ADMIN: simple balances list
  *  ========================= */
