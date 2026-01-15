@@ -931,107 +931,38 @@ function pbb_gc_get_balance_by_serial(int $serial_raw): ?array {
 }
 
 function pbb_gc_render_frontend_ledger(): string {
-	$search_raw = isset($_GET['pbb_gc_search']) ? (string)wp_unslash($_GET['pbb_gc_search']) : '';
-	$search = strtolower(trim($search_raw));
-
-	$q = new WP_Query([
-		'post_type'      => 'flamingo_inbound',
-		'posts_per_page' => 200,
-		'post_status'    => 'publish',
-		'orderby'        => 'date',
-		'order'          => 'DESC',
-	]);
-
-	$rows = [];
-	$seen_serials = [];
-	if ($q->have_posts()) {
-		foreach ($q->posts as $post) {
-			$post_id = (int)$post->ID;
-			$serial_raw = pbb_gc_get_flamingo_serial_raw($post_id);
-			if ($serial_raw <= 0) continue;
-			if (isset($seen_serials[$serial_raw])) continue;
-			$seen_serials[$serial_raw] = true;
-
-			$balance = pbb_gc_get_balance_by_serial($serial_raw);
-			$last_order_id = $balance ? (int)($balance['last_order_id'] ?? 0) : 0;
-
-			$to = pbb_gc_get_flamingo_field_value($post_id, 'to');
-			$from = pbb_gc_get_flamingo_field_value($post_id, 'from');
-			$recipient_email = pbb_gc_get_flamingo_field_value($post_id, 'recipient_email');
-			$date = pbb_gc_get_flamingo_field_value($post_id, 'date');
-			if ($date === '') {
-				$date = get_the_date('Y-m-d', $post_id);
-			}
-
-			$receipt = $last_order_id ? pbb_gc_get_order_items_summary($last_order_id) : '';
-			$cert_code = pbb_gc_serial_to_code($serial_raw);
-			$gift_amount = pbb_gc_extract_gift_amount_from_flamingo_post($post_id);
-			$original_amount = $balance ? (float)($balance['original_amount'] ?? 0) : $gift_amount;
-			$remaining_amount = $balance ? (float)($balance['remaining_amount'] ?? 0) : $gift_amount;
-
-			$search_haystack = strtolower(implode(' ', [
-				$cert_code,
-				(string)$serial_raw,
-				$to,
-				$from,
-				$recipient_email,
-			]));
-
-			if ($search !== '' && strpos($search_haystack, $search) === false) {
-				continue;
-			}
-
-			$rows[] = [
-				'cert_code' => $cert_code,
-				'to' => $to,
-				'from' => $from,
-				'recipient_email' => $recipient_email,
-				'date' => $date,
-				'original' => $original_amount,
-				'remaining' => $remaining_amount,
-				'receipt' => $receipt,
-			];
-		}
-	}
+	global $wpdb;
+	$table = pbb_gc_table();
+	$rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY updated_at DESC LIMIT 200", ARRAY_A);
 
 	ob_start();
 	?>
 	<div class="pbb-gc-ledger">
-		<form method="get" style="margin:0 0 16px;">
-			<label for="pbb_gc_search" style="display:block;font-weight:600;margin-bottom:6px;">Search certificates</label>
-			<input type="text" id="pbb_gc_search" name="pbb_gc_search" value="<?php echo esc_attr($search_raw); ?>" placeholder="Search by certificate, recipient, sender, or email" style="max-width:360px;width:100%;padding:6px 8px;margin-right:8px;">
-			<button type="submit" class="button">Search</button>
-		</form>
-
 		<table class="shop_table shop_table_responsive">
 			<thead>
 				<tr>
-					<th>Certificate</th>
-					<th>To</th>
-					<th>From</th>
-					<th>Recipient Email</th>
-					<th>Date</th>
+					<th>Cert Code</th>
+					<th>Serial Raw</th>
 					<th>Original</th>
 					<th>Remaining</th>
-					<th>Receipt Items</th>
+					<th>Flamingo Post</th>
+					<th>Updated</th>
 				</tr>
 			</thead>
 			<tbody>
 				<?php if (!$rows) : ?>
 					<tr>
-						<td colspan="8">No certificates found.</td>
+						<td colspan="6">No certificates recorded yet (they appear after first redemption).</td>
 					</tr>
 				<?php else : ?>
 					<?php foreach ($rows as $row) : ?>
 						<tr>
 							<td><?php echo esc_html($row['cert_code']); ?></td>
-							<td><?php echo esc_html($row['to']); ?></td>
-							<td><?php echo esc_html($row['from']); ?></td>
-							<td><?php echo esc_html($row['recipient_email']); ?></td>
-							<td><?php echo esc_html($row['date']); ?></td>
-							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['original'])); ?></td>
-							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['remaining'])); ?></td>
-							<td><?php echo esc_html($row['receipt']); ?></td>
+							<td><?php echo esc_html($row['serial_raw']); ?></td>
+							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['original_amount'])); ?></td>
+							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['remaining_amount'])); ?></td>
+							<td><?php echo esc_html((string)$row['flamingo_post_id']); ?></td>
+							<td><?php echo esc_html((string)$row['updated_at']); ?></td>
 						</tr>
 					<?php endforeach; ?>
 				<?php endif; ?>
