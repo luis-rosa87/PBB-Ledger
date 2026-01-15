@@ -934,6 +934,39 @@ function pbb_gc_render_frontend_ledger(): string {
 	global $wpdb;
 	$table = pbb_gc_table();
 	$rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY updated_at DESC LIMIT 200", ARRAY_A);
+	$rows_by_code = [];
+	foreach ($rows as $row) {
+		if (!isset($row['cert_code'])) continue;
+		$rows_by_code[$row['cert_code']] = $row;
+	}
+
+	$q = new WP_Query([
+		'post_type'      => 'flamingo_inbound',
+		'posts_per_page' => 200,
+		'post_status'    => 'publish',
+		'orderby'        => 'date',
+		'order'          => 'DESC',
+		'fields'         => 'ids',
+	]);
+
+	if ($q->have_posts()) {
+		foreach ($q->posts as $post_id) {
+			$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
+			if ($serial_raw <= 0) continue;
+			$cert_code = pbb_gc_serial_to_code($serial_raw);
+			if (isset($rows_by_code[$cert_code])) continue;
+			$gift_amount = pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id);
+
+			$rows[] = [
+				'cert_code' => $cert_code,
+				'serial_raw' => $serial_raw,
+				'original_amount' => $gift_amount,
+				'remaining_amount' => $gift_amount,
+				'flamingo_post_id' => (int)$post_id,
+				'updated_at' => get_the_date('Y-m-d H:i:s', (int)$post_id),
+			];
+		}
+	}
 
 	ob_start();
 	?>
