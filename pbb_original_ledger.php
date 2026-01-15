@@ -938,36 +938,28 @@ function pbb_gc_render_frontend_ledger(): string {
 	ob_start();
 	?>
 	<div class="pbb-gc-ledger">
-		<table class="shop_table shop_table_responsive">
-			<thead>
-				<tr>
-					<th>Cert Code</th>
-					<th>Serial Raw</th>
-					<th>Original</th>
-					<th>Remaining</th>
-					<th>Flamingo Post</th>
-					<th>Updated</th>
-				</tr>
-			</thead>
-			<tbody>
-				<?php if (!$rows) : ?>
-					<tr>
-						<td colspan="6">No certificates recorded yet (they appear after first redemption).</td>
-					</tr>
-				<?php else : ?>
-					<?php foreach ($rows as $row) : ?>
-						<tr>
-							<td><?php echo esc_html($row['cert_code']); ?></td>
-							<td><?php echo esc_html($row['serial_raw']); ?></td>
-							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['original_amount'])); ?></td>
-							<td><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['remaining_amount'])); ?></td>
-							<td><?php echo esc_html((string)$row['flamingo_post_id']); ?></td>
-							<td><?php echo esc_html((string)$row['updated_at']); ?></td>
-						</tr>
-					<?php endforeach; ?>
-				<?php endif; ?>
-			</tbody>
-		</table>
+		<?php if (!$rows) : ?>
+			<p>No certificates recorded yet (they appear after first redemption).</p>
+		<?php else : ?>
+			<div class="pbb-gc-accordion" style="display:flex;flex-direction:column;gap:12px;">
+				<?php foreach ($rows as $row) : ?>
+					<details class="pbb-gc-accordion__item" style="border:1px solid #e0e0e0;border-radius:8px;padding:8px 12px;">
+						<summary style="cursor:pointer;font-weight:600;display:flex;justify-content:space-between;gap:12px;align-items:center;">
+							<span><?php echo esc_html($row['cert_code']); ?></span>
+							<span><?php echo esc_html(pbb_gc_decimal_to_money((float)$row['remaining_amount'])); ?></span>
+						</summary>
+						<div class="pbb-gc-accordion__body" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 16px;">
+							<div><strong>Cert Code:</strong> <?php echo esc_html($row['cert_code']); ?></div>
+							<div><strong>Serial Raw:</strong> <?php echo esc_html($row['serial_raw']); ?></div>
+							<div><strong>Original:</strong> <?php echo esc_html(pbb_gc_decimal_to_money((float)$row['original_amount'])); ?></div>
+							<div><strong>Remaining:</strong> <?php echo esc_html(pbb_gc_decimal_to_money((float)$row['remaining_amount'])); ?></div>
+							<div><strong>Flamingo Post:</strong> <?php echo esc_html((string)$row['flamingo_post_id']); ?></div>
+							<div><strong>Updated:</strong> <?php echo esc_html((string)$row['updated_at']); ?></div>
+						</div>
+					</details>
+				<?php endforeach; ?>
+			</div>
+		<?php endif; ?>
 	</div>
 	<?php
 
