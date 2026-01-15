@@ -254,9 +254,17 @@ function pbb_gc_ajax_apply() {
     }
 
     // Validate existence + remaining balance (creates record if first time)
-    $balance = pbb_gc_get_or_create_balance_from_flamingo($code);
+    $lookup = pbb_gc_get_or_create_balance_from_flamingo($code);
+    $balance = $lookup['balance'] ?? null;
     if (!$balance || ((float)($balance['remaining_amount'] ?? 0)) <= 0) {
-        wp_send_json_error(['message' => 'That gift certificate is not valid or has no remaining balance.']);
+        $searched = $lookup['searched_serials'] ?? [];
+        $searched = array_map('esc_html', $searched);
+        $searched_text = $searched ? 'Searched serials: ' . implode(', ', $searched) . '.' : '';
+        $message = 'That gift certificate is not valid or has no remaining balance.';
+        if ($searched_text) {
+            $message .= ' ' . $searched_text;
+        }
+        wp_send_json_error(['message' => $message]);
     }
 
     WC()->session->set('pbb_gc_applied_code', $balance['cert_code']);
@@ -505,30 +513,45 @@ function pbb_gc_deduct_balance(string $cert_code, float $amount, int $order_id =
  * - else -> look up Flamingo by serial_number meta and read gift_amount
  * - create DB row and return it
  */
-function pbb_gc_get_or_create_balance_from_flamingo(string $entered_code): ?array {
+function pbb_gc_get_or_create_balance_from_flamingo(string $entered_code): array {
 	$entered_code = pbb_gc_normalize_code($entered_code);
 
 	// If already known in DB, use it
 	$existing = pbb_gc_get_balance_row($entered_code);
-	if ($existing) return $existing;
+	if ($existing) return [
+		'balance' => $existing,
+		'searched_serials' => [],
+	];
 
 	// Convert code to raw serial
 	$serial = pbb_gc_code_to_serial_raw($entered_code);
-	if ($serial <= 0) return null;
+	if ($serial <= 0) return [
+		'balance' => null,
+		'searched_serials' => [],
+	];
 
 	// Use canonical code format
 	$canonical_code = pbb_gc_serial_to_code($serial);
 
 	// Maybe the canonical exists already
 	$existing2 = pbb_gc_get_balance_row($canonical_code);
-	if ($existing2) return $existing2;
+	if ($existing2) return [
+		'balance' => $existing2,
+		'searched_serials' => [],
+	];
 
 	// Query Flamingo inbound posts by meta serial_number (supports multiple formats)
 	$fl = pbb_gc_find_flamingo_by_serial($serial, $entered_code);
-	if (!$fl) return null;
+	if (!$fl) return [
+		'balance' => null,
+		'searched_serials' => pbb_gc_serial_search_candidates($serial, $entered_code),
+	];
 
 	$gift_amount = pbb_gc_extract_gift_amount_from_flamingo_post($fl['post_id']);
-	if ($gift_amount <= 0) return null;
+	if ($gift_amount <= 0) return [
+		'balance' => null,
+		'searched_serials' => pbb_gc_serial_search_candidates($serial, $entered_code),
+	];
 
 	// Create DB row
 	$ok = pbb_gc_insert_balance([
@@ -539,24 +562,36 @@ function pbb_gc_get_or_create_balance_from_flamingo(string $entered_code): ?arra
 		'flamingo_post_id' => (int)$fl['post_id'],
 	]);
 
-	if (!$ok) return null;
+	if (!$ok) return [
+		'balance' => null,
+		'searched_serials' => pbb_gc_serial_search_candidates($serial, $entered_code),
+	];
 
-	return pbb_gc_get_balance_row($canonical_code);
+	return [
+		'balance' => pbb_gc_get_balance_row($canonical_code),
+		'searched_serials' => [],
+	];
 }
 
-function pbb_gc_find_flamingo_by_serial(int $serial, string $entered_code = ''): ?array {
-	if ($serial <= 0) return null;
+function pbb_gc_serial_search_candidates(int $serial, string $entered_code = ''): array {
+	if ($serial <= 0) return [];
 
 	$entered_code = pbb_gc_normalize_code($entered_code);
 	$canonical_code = pbb_gc_serial_to_code($serial);
 	$serial_padded = str_pad((string)$serial, PBB_GC_PAD, '0', STR_PAD_LEFT);
 
-	$candidates = array_filter(array_unique([
+	return array_values(array_filter(array_unique([
 		(string)$serial,
 		$serial_padded,
 		$canonical_code,
 		$entered_code,
-	]));
+	])));
+}
+
+function pbb_gc_find_flamingo_by_serial(int $serial, string $entered_code = ''): ?array {
+	if ($serial <= 0) return null;
+
+	$candidates = pbb_gc_serial_search_candidates($serial, $entered_code);
 
 	$serial_keys = [
 		'serial_number',
