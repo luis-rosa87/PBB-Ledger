@@ -621,11 +621,59 @@ function pbb_gc_find_flamingo_by_serial(int $serial, string $entered_code = ''):
 		'order'   => 'DESC',
 	]);
 
-	if (!$q->have_posts()) return null;
+	if (!$q->have_posts()) {
+		$fallback_post_id = pbb_gc_find_flamingo_by_serial_fallback($candidates);
+		if (!$fallback_post_id) return null;
+
+		return ['post_id' => $fallback_post_id];
+	}
 
 	$post_id = (int)$q->posts[0]->ID;
 
 	return ['post_id' => $post_id];
+}
+
+function pbb_gc_find_flamingo_by_serial_fallback(array $candidates): ?int {
+	global $wpdb;
+
+	$candidates = array_values(array_filter(array_unique(array_map('strval', $candidates))));
+	if (!$candidates) return null;
+
+	$like_serial = $wpdb->prepare(
+		"pm.meta_value LIKE %s",
+		'%' . $wpdb->esc_like('serial_number') . '%'
+	);
+
+	$like_candidate_clauses = [];
+	foreach ($candidates as $candidate) {
+		$like_candidate_clauses[] = $wpdb->prepare(
+			"pm.meta_value LIKE %s",
+			'%' . $wpdb->esc_like($candidate) . '%'
+		);
+	}
+
+	if (!$like_candidate_clauses) return null;
+
+	$like_candidates_sql = implode(' OR ', $like_candidate_clauses);
+	$post_type = 'flamingo_inbound';
+	$post_status = 'publish';
+
+	$sql = $wpdb->prepare(
+		"SELECT p.ID
+		FROM {$wpdb->posts} p
+		INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+		WHERE p.post_type = %s
+		  AND p.post_status = %s
+		  AND {$like_serial}
+		  AND ({$like_candidates_sql})
+		ORDER BY p.post_date DESC
+		LIMIT 1",
+		$post_type,
+		$post_status
+	);
+
+	$post_id = (int)$wpdb->get_var($sql);
+	return $post_id > 0 ? $post_id : null;
 }
 
 /**
