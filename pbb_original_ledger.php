@@ -878,6 +878,20 @@ function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
 		}
 	}
 
+	$all_meta = get_post_meta($post_id);
+	foreach ($all_meta as $key => $vals) {
+		if (pbb_gc_normalize_field_key((string)$key) !== 'serial_number') {
+			continue;
+		}
+		foreach ((array)$vals as $maybe) {
+			if (!is_string($maybe) && !is_numeric($maybe)) {
+				continue;
+			}
+			$serial = (int)preg_replace('/[^0-9]/', '', (string)$maybe);
+			if ($serial > 0) return $serial;
+		}
+	}
+
 	return 0;
 }
 
