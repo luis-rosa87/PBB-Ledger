@@ -1037,9 +1037,15 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 		$order = wc_get_order($order_id);
 		if (!$order) continue;
 
+		$items_total = 0.0;
+		foreach ($order->get_items() as $item) {
+			$items_total += (float)$order->get_line_total($item, true);
+		}
+
 			$orders[] = [
 				'id' => $order_id,
 				'summary' => pbb_gc_get_order_items_summary($order_id),
+				'items_total' => $items_total,
 				'total' => $order->get_total(),
 				'date' => $order->get_date_created() ? $order->get_date_created()->date('Y-m-d') : '',
 			];
@@ -1282,6 +1288,12 @@ function pbb_gc_render_flamingo_serials(): string {
 									<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
 										<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
 											<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;max-height:80vh;overflow:auto;">
+												<style>
+													@media (max-width: 640px) {
+														.pbb-gc-modal__content { top: 5%; width: 95%; padding: 12px; }
+														.pbb-gc-modal__content table { width: 100%; display: block; overflow-x: auto; }
+													}
+												</style>
 											<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
 												<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
 												<button type="button" class="pbb-gc-modal-close button">Close</button>
@@ -1289,26 +1301,53 @@ function pbb_gc_render_flamingo_serials(): string {
 											<?php if ($orders) : ?>
 												<table class="shop_table shop_table_responsive" style="margin-top:12px;">
 													<thead>
-														<tr>
-															<th>Order #</th>
-															<th>Date</th>
-															<th>Items</th>
-														</tr>
-													</thead>
-													<tbody>
-														<?php foreach ($orders as $order) : ?>
 															<tr>
-																<td>
-																	<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
-																		#<?php echo esc_html((string)$order['id']); ?>
-																	</a>
-																</td>
-																<td><?php echo esc_html($order['date'] ?: ''); ?></td>
-																<td><?php echo wp_kses_post($order['summary']); ?></td>
+																<th>Order #</th>
+																<th>Date</th>
+																<th>Items</th>
+																<th>Items Total</th>
 															</tr>
-														<?php endforeach; ?>
-													</tbody>
-												</table>
+														</thead>
+														<tbody>
+															<?php foreach ($orders as $order) : ?>
+																<tr>
+																	<td>
+																		<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
+																			#<?php echo esc_html((string)$order['id']); ?>
+																		</a>
+																	</td>
+																	<td><?php echo esc_html($order['date'] ?: ''); ?></td>
+																	<td><?php echo wp_kses_post($order['summary']); ?></td>
+																	<td><?php echo wp_kses_post(wc_price((float)$order['items_total'])); ?></td>
+																</tr>
+															<?php endforeach; ?>
+															<?php
+															$original_amount = $serial['amount'];
+															if (!is_numeric($original_amount)) {
+																$original_amount = 0.0;
+															}
+															$orders_total = 0.0;
+															foreach ($orders as $order) {
+																$orders_total += (float)$order['items_total'];
+															}
+															$remaining_calc = $original_amount - $orders_total;
+															?>
+															<tr>
+																<td colspan="4" style="text-align:right;">
+																	<strong>Original - Orders = Remaining:</strong>
+																	<?php
+																	echo esc_html(
+																		pbb_gc_decimal_to_money((float)$original_amount)
+																		. ' - '
+																		. pbb_gc_decimal_to_money((float)$orders_total)
+																		. ' = '
+																		. pbb_gc_decimal_to_money((float)$remaining_calc)
+																	);
+																	?>
+																</td>
+															</tr>
+														</tbody>
+													</table>
 											<?php else : ?>
 												<p style="margin-top:12px;">No transactions found for this certificate.</p>
 											<?php endif; ?>
