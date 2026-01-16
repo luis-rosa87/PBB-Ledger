@@ -1056,6 +1056,7 @@ function pbb_gc_render_flamingo_serials(): string {
 		$serials[] = [
 			'serial' => pbb_gc_serial_to_code($serial_raw),
 			'amount' => $post_id > 0 ? pbb_gc_extract_gift_amount_from_flamingo_post($post_id) : null,
+			'remaining' => null,
 		];
 	}
 
@@ -1073,13 +1074,14 @@ function pbb_gc_render_flamingo_serials(): string {
 			foreach ($q->posts as $post_id) {
 				$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
 				if ($serial_raw <= 0) continue;
-				$serials[] = [
-					'serial' => pbb_gc_serial_to_code($serial_raw),
-					'amount' => pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id),
-				];
+					$serials[] = [
+						'serial' => pbb_gc_serial_to_code($serial_raw),
+						'amount' => pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id),
+						'remaining' => null,
+					];
+				}
 			}
 		}
-	}
 
 	$serial_map = [];
 	foreach ($serials as $serial) {
@@ -1088,6 +1090,13 @@ function pbb_gc_render_flamingo_serials(): string {
 		if (!isset($serial_map[$key])) {
 			$serial_map[$key] = $serial;
 		}
+	}
+	foreach ($serial_map as $key => $serial) {
+		$serial_raw = pbb_gc_code_to_serial_raw($key);
+		if ($serial_raw <= 0) continue;
+		$balance = pbb_gc_get_balance_by_serial($serial_raw);
+		if (!$balance) continue;
+		$serial_map[$key]['remaining'] = $balance['remaining_amount'] ?? null;
 	}
 	$serials = array_values($serial_map);
 
@@ -1102,6 +1111,7 @@ function pbb_gc_render_flamingo_serials(): string {
 					<tr>
 						<th>Certificate</th>
 						<th>Gift Amount</th>
+						<th>Remaining Funds</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -1113,6 +1123,16 @@ function pbb_gc_render_flamingo_serials(): string {
 								$amount = $serial['amount'];
 								if (is_numeric($amount)) {
 									echo esc_html(pbb_gc_decimal_to_money((float)$amount));
+								} else {
+									echo '&mdash;';
+									}
+									?>
+							</td>
+							<td>
+								<?php
+								$remaining = $serial['remaining'];
+								if (is_numeric($remaining)) {
+									echo esc_html(pbb_gc_decimal_to_money((float)$remaining));
 								} else {
 									echo '&mdash;';
 								}
