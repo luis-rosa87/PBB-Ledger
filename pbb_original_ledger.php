@@ -991,6 +991,27 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 		}
 	}
 
+	$fee_match_orders = wc_get_orders([
+		'limit' => -1,
+		'status' => array_keys(wc_get_order_statuses()),
+		'type' => 'shop_order',
+		'orderby' => 'date',
+		'order' => 'DESC',
+	]);
+	foreach ($fee_match_orders as $order) {
+		if (!$order instanceof WC_Order) continue;
+		foreach ($order->get_fees() as $fee) {
+			$fee_name = (string)$fee->get_name();
+			if ($fee_name !== '' && stripos($fee_name, $cert_code) !== false) {
+				$order_id = (int)$order->get_id();
+				if ($order_id > 0) {
+					$order_ids[$order_id] = true;
+				}
+				break;
+			}
+		}
+	}
+
 	if ($serial_raw > 0) {
 		$meta_key = $wpdb->prefix . 'pbb_gc_order_log';
 		$log_rows = $wpdb->get_col(
