@@ -984,9 +984,18 @@ function pbb_gc_get_flamingo_field_value(int $post_id, string $field_key): strin
 	if ($post_id <= 0 || $field_key === '') return '';
 
 	$field_key = pbb_gc_normalize_field_key($field_key);
-	$direct = get_post_meta($post_id, $field_key, true);
-	if (is_string($direct) && $direct !== '') {
-		return $direct;
+	$direct_keys = [
+		$field_key,
+		'_field_' . $field_key,
+		'field_' . $field_key,
+		'_field-' . $field_key,
+		'field-' . $field_key,
+	];
+	foreach ($direct_keys as $direct_key) {
+		$direct_value = get_post_meta($post_id, $direct_key, true);
+		if (is_string($direct_value) && $direct_value !== '') {
+			return $direct_value;
+		}
 	}
 
 	$alts = ['_fields', 'fields', '_flamingo_fields'];
