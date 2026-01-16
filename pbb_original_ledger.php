@@ -940,6 +940,35 @@ function pbb_gc_get_balance_by_serial(int $serial_raw): ?array {
 	return $row ?: null;
 }
 
+function pbb_gc_get_order_links_for_certificate(string $cert_code): array {
+	$cert_code = pbb_gc_normalize_code($cert_code);
+	if ($cert_code === '') return [];
+
+	$q = new WP_Query([
+		'post_type'      => 'shop_order',
+		'posts_per_page' => -1,
+		'post_status'    => array_keys(wc_get_order_statuses()),
+		'orderby'        => 'date',
+		'order'          => 'DESC',
+		'fields'         => 'ids',
+		'meta_query'     => [
+			[
+				'key'   => '_pbb_gc_redeem_code',
+				'value' => $cert_code,
+			],
+		],
+	]);
+
+	$links = [];
+	foreach ($q->posts as $order_id) {
+		$order_id = (int)$order_id;
+		$link = admin_url('post.php?post=' . $order_id . '&action=edit');
+		$links[] = '<a href="' . esc_url($link) . '" target="_blank" rel="noopener">#' . esc_html((string)$order_id) . '</a>';
+	}
+
+	return $links;
+}
+
 function pbb_gc_render_frontend_ledger(): string {
 	global $wpdb;
 	$table = pbb_gc_table();
@@ -1119,6 +1148,7 @@ function pbb_gc_render_flamingo_serials(): string {
 							<th>Remaining Funds</th>
 							<th>Date Purchased</th>
 							<th>Last Transaction</th>
+							<th>Transactions</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -1154,13 +1184,23 @@ function pbb_gc_render_flamingo_serials(): string {
 								echo $purchased_at !== '' ? esc_html($purchased_at) : '&mdash;';
 								?>
 							</td>
-							<td>
-								<?php
-								$last_transaction = $serial['last_transaction'] ?? '';
-								echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;';
-								?>
-							</td>
-						</tr>
+								<td>
+									<?php
+									$last_transaction = $serial['last_transaction'] ?? '';
+									echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;';
+									?>
+								</td>
+								<td>
+									<?php
+									$links = pbb_gc_get_order_links_for_certificate($serial['serial'] ?? '');
+									if ($links) {
+										echo implode(', ', $links);
+									} else {
+										echo '&mdash;';
+									}
+									?>
+								</td>
+							</tr>
 					<?php endforeach; ?>
 				</tbody>
 			</table>
