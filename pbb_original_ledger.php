@@ -1322,6 +1322,7 @@ function pbb_gc_render_flamingo_serials(): string {
 			'remaining' => null,
 			'purchased_at' => $post_id > 0 ? get_the_date('Y-m-d H:i:s', $post_id) : null,
 			'last_transaction' => null,
+			'post_id' => $post_id,
 		];
 	}
 
@@ -1345,6 +1346,7 @@ function pbb_gc_render_flamingo_serials(): string {
 						'remaining' => null,
 						'purchased_at' => get_the_date('Y-m-d H:i:s', (int)$post_id),
 						'last_transaction' => null,
+						'post_id' => (int)$post_id,
 					];
 				}
 			}
@@ -1393,6 +1395,9 @@ function pbb_gc_render_flamingo_serials(): string {
 					$manual_nonce = wp_create_nonce('pbb_gc_manual_txn');
 					$amount = $serial['amount'];
 					$amount_display = is_numeric($amount) ? pbb_gc_decimal_to_money((float)$amount) : '—';
+					$post_id = (int)($serial['post_id'] ?? 0);
+					$recipient = $post_id > 0 ? pbb_gc_get_flamingo_field_value($post_id, 'to') : '';
+					$sender = $post_id > 0 ? pbb_gc_get_flamingo_field_value($post_id, 'from') : '';
 					$purchased_at = $serial['purchased_at'] ?? '';
 					$last_transaction = $serial['last_transaction'] ?? '';
 					?>
@@ -1409,13 +1414,15 @@ function pbb_gc_render_flamingo_serials(): string {
 								?>
 							</span>
 						</summary>
-						<div class="pbb-gc-accordion__content" style="padding:12px;border-top:1px solid #ccd0d4;">
-							<div style="display:flex;flex-direction:column;gap:6px;">
-								<div><strong>Original Amount:</strong> <?php echo esc_html($amount_display); ?></div>
-								<div><strong>Date Purchased:</strong> <?php echo $purchased_at !== '' ? esc_html($purchased_at) : '&mdash;'; ?></div>
-								<div><strong>Last Transaction:</strong> <?php echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;'; ?></div>
-								<div><strong>Transactions:</strong> <a href="#" class="pbb-gc-modal-link" data-modal-id="<?php echo esc_attr($modal_id); ?>">View</a></div>
-							</div>
+							<div class="pbb-gc-accordion__content" style="padding:12px;border-top:1px solid #ccd0d4;">
+								<div style="display:flex;flex-direction:column;gap:6px;">
+									<div><strong>Original Amount:</strong> <?php echo esc_html($amount_display); ?></div>
+									<div><strong>Recipient:</strong> <?php echo $recipient !== '' ? esc_html($recipient) : '&mdash;'; ?></div>
+									<div><strong>Sender:</strong> <?php echo $sender !== '' ? esc_html($sender) : '&mdash;'; ?></div>
+									<div><strong>Date Purchased:</strong> <?php echo $purchased_at !== '' ? esc_html($purchased_at) : '&mdash;'; ?></div>
+									<div><strong>Last Transaction:</strong> <?php echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;'; ?></div>
+									<div><strong>Transactions:</strong> <a href="#" class="pbb-gc-modal-link" data-modal-id="<?php echo esc_attr($modal_id); ?>">View</a></div>
+								</div>
 						</div>
 						<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
 							<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
