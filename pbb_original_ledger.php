@@ -1057,6 +1057,8 @@ function pbb_gc_render_flamingo_serials(): string {
 			'serial' => pbb_gc_serial_to_code($serial_raw),
 			'amount' => $post_id > 0 ? pbb_gc_extract_gift_amount_from_flamingo_post($post_id) : null,
 			'remaining' => null,
+			'purchased_at' => $post_id > 0 ? get_the_date('Y-m-d H:i:s', $post_id) : null,
+			'last_transaction' => null,
 		];
 	}
 
@@ -1078,6 +1080,8 @@ function pbb_gc_render_flamingo_serials(): string {
 						'serial' => pbb_gc_serial_to_code($serial_raw),
 						'amount' => pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id),
 						'remaining' => null,
+						'purchased_at' => get_the_date('Y-m-d H:i:s', (int)$post_id),
+						'last_transaction' => null,
 					];
 				}
 			}
@@ -1097,6 +1101,7 @@ function pbb_gc_render_flamingo_serials(): string {
 		$balance = pbb_gc_get_balance_by_serial($serial_raw);
 		if (!$balance) continue;
 		$serial_map[$key]['remaining'] = $balance['remaining_amount'] ?? null;
+		$serial_map[$key]['last_transaction'] = $balance['updated_at'] ?? null;
 	}
 	$serials = array_values($serial_map);
 
@@ -1108,13 +1113,15 @@ function pbb_gc_render_flamingo_serials(): string {
 		<?php else : ?>
 			<table class="shop_table shop_table_responsive">
 				<thead>
-					<tr>
-						<th>Certificate</th>
-						<th>Gift Amount</th>
-						<th>Remaining Funds</th>
-					</tr>
-				</thead>
-				<tbody>
+						<tr>
+							<th>Certificate</th>
+							<th>Gift Amount</th>
+							<th>Remaining Funds</th>
+							<th>Date Purchased</th>
+							<th>Last Transaction</th>
+						</tr>
+					</thead>
+					<tbody>
 					<?php foreach ($serials as $serial) : ?>
 						<tr>
 							<td><?php echo esc_html($serial['serial']); ?></td>
@@ -1139,6 +1146,18 @@ function pbb_gc_render_flamingo_serials(): string {
 								} else {
 									echo '&mdash;';
 								}
+								?>
+							</td>
+							<td>
+								<?php
+								$purchased_at = $serial['purchased_at'] ?? '';
+								echo $purchased_at !== '' ? esc_html($purchased_at) : '&mdash;';
+								?>
+							</td>
+							<td>
+								<?php
+								$last_transaction = $serial['last_transaction'] ?? '';
+								echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;';
 								?>
 							</td>
 						</tr>
