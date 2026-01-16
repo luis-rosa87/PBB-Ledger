@@ -1006,7 +1006,7 @@ function pbb_gc_render_flamingo_serials(): string {
 	$q = new WP_Query([
 		'post_type'      => 'flamingo_inbound',
 		'posts_per_page' => -1,
-		'post_status'    => 'publish',
+		'post_status'    => 'any',
 		'orderby'        => 'date',
 		'order'          => 'DESC',
 		'fields'         => 'ids',
