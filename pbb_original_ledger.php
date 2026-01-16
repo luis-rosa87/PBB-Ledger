@@ -944,6 +944,27 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 	$cert_code = pbb_gc_normalize_code($cert_code);
 	if ($cert_code === '') return [];
 
+	global $wpdb;
+	$table = pbb_gc_table();
+
+	$order_ids = [];
+	$serial_raw = pbb_gc_code_to_serial_raw($cert_code);
+	if ($serial_raw > 0) {
+		$balance_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT last_order_id FROM {$table} WHERE cert_code = %s OR serial_raw = %d",
+				$cert_code,
+				$serial_raw
+			)
+		);
+		foreach ($balance_ids as $order_id) {
+			$order_id = (int)$order_id;
+			if ($order_id > 0) {
+				$order_ids[$order_id] = true;
+			}
+		}
+	}
+
 	$q = new WP_Query([
 		'post_type'      => 'shop_order',
 		'posts_per_page' => -1,
@@ -959,9 +980,15 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 		],
 	]);
 
-	$orders = [];
 	foreach ($q->posts as $order_id) {
 		$order_id = (int)$order_id;
+		if ($order_id > 0) {
+			$order_ids[$order_id] = true;
+		}
+	}
+
+	$orders = [];
+	foreach (array_keys($order_ids) as $order_id) {
 		$order = wc_get_order($order_id);
 		if (!$order) continue;
 
