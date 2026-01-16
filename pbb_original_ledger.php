@@ -151,6 +151,71 @@ function pbb_gc_cart_has_gift_cert(): bool {
 	return false;
 }
 
+function pbb_gc_cart_gift_cert_state(): array {
+	$state = [
+		'gift_qty' => 0,
+		'has_other' => false,
+	];
+	if (!function_exists('WC') || !WC()->cart) {
+		return $state;
+	}
+
+	$allowed_products   = pbb_gc_allowed_product_ids();
+	$allowed_variations = pbb_gc_allowed_variation_ids();
+
+	foreach (WC()->cart->get_cart() as $cart_item) {
+		$product = $cart_item['data'] ?? null;
+		if (!$product) continue;
+
+		$pid = (int)$product->get_id();
+		$vid = (int)($cart_item['variation_id'] ?? 0);
+		$is_gift = in_array($pid, $allowed_products, true) || in_array($vid, $allowed_variations, true);
+		if ($is_gift) {
+			$state['gift_qty'] += (int)($cart_item['quantity'] ?? 0);
+		} else {
+			$state['has_other'] = true;
+		}
+	}
+
+	return $state;
+}
+
+add_filter('woocommerce_add_to_cart_validation', function ($passed, $product_id, $quantity, $variation_id = 0) {
+	if (!function_exists('WC') || !WC()->cart) return $passed;
+
+	$allowed_products   = pbb_gc_allowed_product_ids();
+	$allowed_variations = pbb_gc_allowed_variation_ids();
+	$is_gift = in_array((int)$product_id, $allowed_products, true) || in_array((int)$variation_id, $allowed_variations, true);
+	$state = pbb_gc_cart_gift_cert_state();
+
+	if ($is_gift) {
+		if ($state['has_other']) {
+			wc_add_notice('Gift certificates must be purchased alone in a separate transaction.', 'error');
+			return false;
+		}
+		if ($state['gift_qty'] + (int)$quantity > 1) {
+			wc_add_notice('Only one gift certificate can be purchased per transaction.', 'error');
+			return false;
+		}
+	} elseif ($state['gift_qty'] > 0) {
+		wc_add_notice('Gift certificates must be purchased alone in a separate transaction.', 'error');
+		return false;
+	}
+
+	return $passed;
+}, 10, 4);
+
+add_action('woocommerce_check_cart_items', function () {
+	if (!function_exists('WC') || !WC()->cart) return;
+	$state = pbb_gc_cart_gift_cert_state();
+	if ($state['gift_qty'] > 1) {
+		wc_add_notice('Only one gift certificate can be purchased per transaction.', 'error');
+	}
+	if ($state['gift_qty'] > 0 && $state['has_other']) {
+		wc_add_notice('Gift certificates must be purchased alone in a separate transaction.', 'error');
+	}
+});
+
 function pbb_gc_order_has_gift_cert(WC_Order $order): bool {
 	$allowed_products   = pbb_gc_allowed_product_ids();
 	$allowed_variations = pbb_gc_allowed_variation_ids();
