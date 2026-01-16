@@ -686,7 +686,7 @@ function pbb_gc_add_manual_transaction() {
 	}
 
 	$new_remaining = (float)$balance['remaining_amount'] - (float)$transaction['items_total'];
-	pbb_gc_update_remaining($balance['cert_code'], $new_remaining);
+	pbb_gc_update_remaining($balance['cert_code'], max(0, $new_remaining));
 
 	wp_send_json_success(['message' => 'Manual transaction added.']);
 }
@@ -1387,6 +1387,15 @@ function pbb_gc_render_flamingo_serials(): string {
 					</thead>
 					<tbody>
 					<?php foreach ($serials as $serial) : ?>
+						<?php
+						$remaining_value = $serial['remaining'];
+						if (!is_numeric($remaining_value)) {
+							$remaining_value = $serial['amount'];
+						}
+						if (!is_numeric($remaining_value)) {
+							$remaining_value = null;
+						}
+						?>
 						<tr>
 							<td><?php echo esc_html($serial['serial']); ?></td>
 							<td>
@@ -1401,12 +1410,8 @@ function pbb_gc_render_flamingo_serials(): string {
 							</td>
 							<td>
 								<?php
-								$remaining = $serial['remaining'];
-								if (!is_numeric($remaining)) {
-									$remaining = $serial['amount'];
-								}
-								if (is_numeric($remaining)) {
-									echo esc_html(pbb_gc_decimal_to_money((float)$remaining));
+								if (is_numeric($remaining_value)) {
+									echo esc_html(pbb_gc_decimal_to_money((float)$remaining_value));
 								} else {
 									echo '&mdash;';
 								}
@@ -1514,7 +1519,7 @@ function pbb_gc_render_flamingo_serials(): string {
 												<?php endif; ?>
 											</div>
 										</div>
-										<div id="<?php echo esc_attr($manual_id); ?>" class="pbb-gc-manual-modal" data-cert="<?php echo esc_attr($serial['serial']); ?>" data-nonce="<?php echo esc_attr($manual_nonce); ?>" style="display:none;">
+										<div id="<?php echo esc_attr($manual_id); ?>" class="pbb-gc-manual-modal" data-cert="<?php echo esc_attr($serial['serial']); ?>" data-nonce="<?php echo esc_attr($manual_nonce); ?>" data-remaining="<?php echo esc_attr(is_numeric($remaining_value) ? (string)$remaining_value : ''); ?>" style="display:none;">
 											<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;"></div>
 											<div class="pbb-gc-modal__content" style="position:fixed;top:12%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:600px;width:92%;z-index:10001;">
 												<h3 style="margin:0 0 12px;">Add Manual Transaction</h3>
@@ -1523,6 +1528,18 @@ function pbb_gc_render_flamingo_serials(): string {
 												<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
 													<button type="button" class="button pbb-gc-manual-cancel">Cancel</button>
 													<button type="button" class="button button-primary pbb-gc-manual-finish">Finish</button>
+												</div>
+											</div>
+											<div class="pbb-gc-manual-overage-modal" style="display:none;">
+												<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10002;"></div>
+												<div class="pbb-gc-modal__content" style="position:fixed;top:18%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:420px;width:90%;z-index:10003;">
+													<h4 style="margin:0 0 12px;">Certificate Balance Applied</h4>
+													<p style="margin:0 0 8px;">Covered by certificate: <strong class="pbb-gc-overage-covered"></strong></p>
+													<p style="margin:0 0 16px;">Customer still owes: <strong class="pbb-gc-overage-owed"></strong></p>
+													<div style="display:flex;justify-content:flex-end;gap:8px;">
+														<button type="button" class="button pbb-gc-overage-cancel">Cancel</button>
+														<button type="button" class="button button-primary pbb-gc-overage-continue">Continue</button>
+													</div>
 												</div>
 											</div>
 										</div>
@@ -1549,6 +1566,50 @@ function pbb_gc_render_flamingo_serials(): string {
 					+ '<input type="number" class="pbb-gc-item-price" placeholder="Price" step="0.01" min="0" style="width:120px;" />'
 					+ '<button type="button" class="button pbb-gc-remove-item">Remove</button>';
 				container.appendChild(row);
+			}
+			function formatMoney(value){
+				var amount = parseFloat(value);
+				if (Number.isNaN(amount)) amount = 0;
+				if (amount < 0) amount = 0;
+				return '$' + amount.toFixed(2);
+			}
+			function submitManualTransaction(finishModal, items){
+				var certCode = finishModal.getAttribute('data-cert') || '';
+				var nonce = finishModal.getAttribute('data-nonce') || '';
+				var url = (window.wc_checkout_params && window.wc_checkout_params.ajax_url) ? window.wc_checkout_params.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php');
+				var form = new FormData();
+				form.append('action', 'pbb_gc_add_manual_transaction');
+				form.append('security', nonce);
+				form.append('cert_code', certCode);
+				items.forEach(function(item, index){
+					form.append('items[' + index + '][name]', item.name);
+					form.append('items[' + index + '][price]', item.price);
+				});
+				fetch(url, { method:'POST', credentials:'same-origin', body: form })
+					.then(function(r){ return r.json(); })
+					.then(function(res){
+						if (res && res.success) {
+							window.location.reload();
+						} else {
+							alert((res && res.data && res.data.message) ? res.data.message : 'Unable to add transaction.');
+						}
+					})
+					.catch(function(){
+						alert('Request failed. Please try again.');
+					});
+			}
+			function openOverageModal(manualModal, itemsTotal, remaining, items){
+				var overageModal = manualModal.querySelector('.pbb-gc-manual-overage-modal');
+				if (!overageModal) return;
+				var coveredEl = overageModal.querySelector('.pbb-gc-overage-covered');
+				var owedEl = overageModal.querySelector('.pbb-gc-overage-owed');
+				var covered = Math.min(itemsTotal, remaining);
+				var owed = Math.max(0, itemsTotal - remaining);
+				if (coveredEl) coveredEl.textContent = formatMoney(covered);
+				if (owedEl) owedEl.textContent = formatMoney(owed);
+				overageModal._pendingItems = items;
+				overageModal._pendingModal = manualModal;
+				overageModal.style.display = 'block';
 			}
 			document.addEventListener('click', function(event){
 				var link = event.target.closest('.pbb-gc-modal-link');
@@ -1596,6 +1657,9 @@ function pbb_gc_render_flamingo_serials(): string {
 				}
 				var manualOverlay = event.target.closest('.pbb-gc-manual-modal .pbb-gc-modal__overlay');
 				if (manualOverlay) {
+					if (manualOverlay.closest('.pbb-gc-manual-overage-modal')) {
+						return;
+					}
 					var manualOverlayModal = manualOverlay.closest('.pbb-gc-manual-modal');
 					if (manualOverlayModal) {
 						manualOverlayModal.style.display = 'none';
@@ -1623,8 +1687,6 @@ function pbb_gc_render_flamingo_serials(): string {
 				if (finishBtn) {
 					var finishModal = finishBtn.closest('.pbb-gc-manual-modal');
 					if (!finishModal) return;
-					var certCode = finishModal.getAttribute('data-cert') || '';
-					var nonce = finishModal.getAttribute('data-nonce') || '';
 					var itemRows = finishModal.querySelectorAll('.pbb-gc-manual-items > div');
 					var items = [];
 					itemRows.forEach(function(rowEl){
@@ -1636,27 +1698,54 @@ function pbb_gc_render_flamingo_serials(): string {
 						if (nameVal.trim() === '' || priceVal === '') return;
 						items.push({ name: nameVal.trim(), price: priceVal });
 					});
-					var url = (window.wc_checkout_params && window.wc_checkout_params.ajax_url) ? window.wc_checkout_params.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php');
-					var form = new FormData();
-					form.append('action', 'pbb_gc_add_manual_transaction');
-					form.append('security', nonce);
-					form.append('cert_code', certCode);
-					items.forEach(function(item, index){
-						form.append('items[' + index + '][name]', item.name);
-						form.append('items[' + index + '][price]', item.price);
-					});
-					fetch(url, { method:'POST', credentials:'same-origin', body: form })
-						.then(function(r){ return r.json(); })
-						.then(function(res){
-							if (res && res.success) {
-								window.location.reload();
-							} else {
-								alert((res && res.data && res.data.message) ? res.data.message : 'Unable to add transaction.');
-							}
-						})
-						.catch(function(){
-							alert('Request failed. Please try again.');
-						});
+					var total = items.reduce(function(sum, item){
+						var price = parseFloat(item.price);
+						if (Number.isNaN(price)) price = 0;
+						return sum + price;
+					}, 0);
+					var remainingAttr = finishModal.getAttribute('data-remaining');
+					var remaining = parseFloat(remainingAttr);
+					if (!Number.isNaN(remaining) && total > remaining) {
+						openOverageModal(finishModal, total, remaining, items);
+						return;
+					}
+					submitManualTransaction(finishModal, items);
+					return;
+				}
+				var overageCancel = event.target.closest('.pbb-gc-overage-cancel');
+				if (overageCancel) {
+					var overageModal = overageCancel.closest('.pbb-gc-manual-overage-modal');
+					if (overageModal) {
+						overageModal.style.display = 'none';
+						overageModal._pendingItems = null;
+						overageModal._pendingModal = null;
+					}
+					return;
+				}
+				var overageContinue = event.target.closest('.pbb-gc-overage-continue');
+				if (overageContinue) {
+					var continueModal = overageContinue.closest('.pbb-gc-manual-overage-modal');
+					if (continueModal) {
+						var pendingItems = continueModal._pendingItems || [];
+						var pendingModal = continueModal._pendingModal;
+						continueModal.style.display = 'none';
+						continueModal._pendingItems = null;
+						continueModal._pendingModal = null;
+						if (pendingModal) {
+							submitManualTransaction(pendingModal, pendingItems);
+						}
+					}
+					return;
+				}
+				var overageOverlay = event.target.closest('.pbb-gc-manual-overage-modal .pbb-gc-modal__overlay');
+				if (overageOverlay) {
+					var overageOverlayModal = overageOverlay.closest('.pbb-gc-manual-overage-modal');
+					if (overageOverlayModal) {
+						overageOverlayModal.style.display = 'none';
+						overageOverlayModal._pendingItems = null;
+						overageOverlayModal._pendingModal = null;
+					}
+					return;
 				}
 			});
 		})();
