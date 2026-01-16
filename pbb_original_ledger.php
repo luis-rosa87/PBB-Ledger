@@ -1003,23 +1003,54 @@ function pbb_gc_render_frontend_ledger(): string {
 add_shortcode('pbb_gc_frontend_ledger', 'pbb_gc_render_frontend_ledger');
 
 function pbb_gc_render_flamingo_serials(): string {
-	$q = new WP_Query([
-		'post_type'      => 'flamingo_inbound',
-		'posts_per_page' => -1,
-		'post_status'    => 'any',
-		'orderby'        => 'date',
-		'order'          => 'DESC',
-		'fields'         => 'ids',
-	]);
-
+	global $wpdb;
 	$serials = [];
-	if ($q->have_posts()) {
-		foreach ($q->posts as $post_id) {
-			$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
-			if ($serial_raw <= 0) continue;
-			$serials[] = pbb_gc_serial_to_code($serial_raw);
+	$serial_keys = [
+		'serial_number',
+		'_field_serial_number',
+		'field_serial_number',
+		'serial-number',
+		'serialnumber',
+	];
+	$placeholders = implode(',', array_fill(0, count($serial_keys), '%s'));
+
+	$sql = $wpdb->prepare(
+		"SELECT pm.meta_value
+		FROM {$wpdb->posts} p
+		INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+		WHERE p.post_type = %s
+		  AND pm.meta_key IN ({$placeholders})
+		ORDER BY p.post_date DESC",
+		array_merge(['flamingo_inbound'], $serial_keys)
+	);
+
+	$values = $wpdb->get_col($sql);
+	foreach ($values as $value) {
+		$serial_raw = (int)preg_replace('/[^0-9]/', '', (string)$value);
+		if ($serial_raw <= 0) continue;
+		$serials[] = pbb_gc_serial_to_code($serial_raw);
+	}
+
+	if (!$serials) {
+		$q = new WP_Query([
+			'post_type'      => 'flamingo_inbound',
+			'posts_per_page' => -1,
+			'post_status'    => 'any',
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+			'fields'         => 'ids',
+		]);
+
+		if ($q->have_posts()) {
+			foreach ($q->posts as $post_id) {
+				$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
+				if ($serial_raw <= 0) continue;
+				$serials[] = pbb_gc_serial_to_code($serial_raw);
+			}
 		}
 	}
+
+	$serials = array_values(array_unique($serials));
 
 	ob_start();
 	?>
