@@ -853,6 +853,8 @@ function pbb_gc_get_flamingo_field_value(int $post_id, string $field_key): strin
 
 function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
 	$serial_keys = [
+		'_serial_number',
+		'_meta',
 		'serial_number',
 		'_field_serial_number',
 		'field_serial_number',
@@ -863,7 +865,15 @@ function pbb_gc_get_flamingo_serial_raw(int $post_id): int {
 	foreach ($serial_keys as $key) {
 		$value = get_post_meta($post_id, $key, true);
 		if (is_string($value) && $value !== '') {
-			$serial = (int)preg_replace('/[^0-9]/', '', $value);
+			if ($key === '_meta') {
+				$meta_array = maybe_unserialize($value);
+				if (is_array($meta_array) && isset($meta_array['serial_number'])) {
+					$value = $meta_array['serial_number'];
+				} else {
+					continue;
+				}
+			}
+			$serial = (int)preg_replace('/[^0-9]/', '', (string)$value);
 			if ($serial > 0) return $serial;
 		}
 	}
