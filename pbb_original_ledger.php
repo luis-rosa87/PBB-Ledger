@@ -1385,6 +1385,9 @@ function pbb_gc_render_flamingo_serials(): string {
 		<?php if (!$serials) : ?>
 			<p>No Flamingo serial numbers found.</p>
 		<?php else : ?>
+			<div class="pbb-gc-accordion-search" style="margin-bottom:12px;">
+				<input type="text" class="pbb-gc-accordion-search-input" placeholder="Search certificates, recipients, or senders" style="width:100%;max-width:420px;padding:8px 10px;" />
+			</div>
 			<div class="pbb-gc-accordion">
 				<style>
 					.pbb-gc-accordion__item { border: 1px solid #e2e2e2; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
@@ -1418,7 +1421,7 @@ function pbb_gc_render_flamingo_serials(): string {
 					$manual_id = 'pbb-gc-manual-' . esc_attr($serial['serial'] ?? 'missing');
 					$manual_nonce = wp_create_nonce('pbb_gc_manual_txn');
 					?>
-					<div class="pbb-gc-accordion__item">
+					<div class="pbb-gc-accordion__item" data-cert="<?php echo esc_attr($serial['serial']); ?>" data-recipient="<?php echo esc_attr($recipient); ?>" data-sender="<?php echo esc_attr($sender); ?>">
 						<div class="pbb-gc-accordion__header" data-accordion-toggle>
 							<span class="pbb-gc-accordion__title"><?php echo esc_html($serial['serial']); ?></span>
 							<span class="pbb-gc-accordion__remaining">
@@ -1572,9 +1575,24 @@ function pbb_gc_render_flamingo_serials(): string {
 					if (!item) return;
 					var body = item.querySelector('.pbb-gc-accordion__body');
 					if (!body) return;
-					body.style.display = body.style.display === 'block' ? 'none' : 'block';
+					var isOpen = body.style.display === 'block';
+					document.querySelectorAll('.pbb-gc-accordion__body').forEach(function(panel){
+						panel.style.display = 'none';
+					});
+					body.style.display = isOpen ? 'none' : 'block';
 					return;
 				}
+			});
+			document.addEventListener('input', function(event){
+				if (!event.target.classList.contains('pbb-gc-accordion-search-input')) return;
+				var query = event.target.value.toLowerCase().trim();
+				document.querySelectorAll('.pbb-gc-accordion__item').forEach(function(item){
+					var cert = (item.getAttribute('data-cert') || '').toLowerCase();
+					var recipient = (item.getAttribute('data-recipient') || '').toLowerCase();
+					var sender = (item.getAttribute('data-sender') || '').toLowerCase();
+					var match = query === '' || cert.includes(query) || recipient.includes(query) || sender.includes(query);
+					item.style.display = match ? '' : 'none';
+				});
 			});
 			function closeModal(modal){
 				if(!modal) return;
