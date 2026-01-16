@@ -940,7 +940,7 @@ function pbb_gc_get_balance_by_serial(int $serial_raw): ?array {
 	return $row ?: null;
 }
 
-function pbb_gc_get_order_links_for_certificate(string $cert_code): array {
+function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 	$cert_code = pbb_gc_normalize_code($cert_code);
 	if ($cert_code === '') return [];
 
@@ -959,14 +959,21 @@ function pbb_gc_get_order_links_for_certificate(string $cert_code): array {
 		],
 	]);
 
-	$links = [];
+	$orders = [];
 	foreach ($q->posts as $order_id) {
 		$order_id = (int)$order_id;
-		$link = admin_url('post.php?post=' . $order_id . '&action=edit');
-		$links[] = '<a href="' . esc_url($link) . '" target="_blank" rel="noopener">#' . esc_html((string)$order_id) . '</a>';
+		$order = wc_get_order($order_id);
+		if (!$order) continue;
+
+		$orders[] = [
+			'id' => $order_id,
+			'summary' => pbb_gc_get_order_items_summary($order_id),
+			'total' => $order->get_total(),
+			'date' => $order->get_date_created() ? $order->get_date_created()->date('Y-m-d H:i:s') : '',
+		];
 	}
 
-	return $links;
+	return $orders;
 }
 
 function pbb_gc_render_frontend_ledger(): string {
@@ -1148,7 +1155,7 @@ function pbb_gc_render_flamingo_serials(): string {
 							<th>Remaining Funds</th>
 							<th>Date Purchased</th>
 							<th>Last Transaction</th>
-							<th>Transactions</th>
+								<th>Transactions</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -1192,20 +1199,89 @@ function pbb_gc_render_flamingo_serials(): string {
 								</td>
 								<td>
 									<?php
-									$links = pbb_gc_get_order_links_for_certificate($serial['serial'] ?? '');
-									if ($links) {
-										echo implode(', ', $links);
-									} else {
-										echo '&mdash;';
-									}
+									$orders = pbb_gc_get_orders_for_certificate($serial['serial'] ?? '');
+									$modal_id = 'pbb-gc-modal-' . esc_attr($serial['serial'] ?? 'missing');
+									echo '<a href="#" class="pbb-gc-modal-link" data-modal-id="' . esc_attr($modal_id) . '">View</a>';
 									?>
 								</td>
 							</tr>
-					<?php endforeach; ?>
-				</tbody>
-			</table>
-		<?php endif; ?>
-	</div>
+							<tr class="pbb-gc-modal-row">
+								<td colspan="7">
+									<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
+										<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
+										<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;">
+											<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+												<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
+												<button type="button" class="pbb-gc-modal-close button">Close</button>
+											</div>
+											<?php if ($orders) : ?>
+												<table class="shop_table shop_table_responsive" style="margin-top:12px;">
+													<thead>
+														<tr>
+															<th>Order</th>
+															<th>Date</th>
+															<th>Total</th>
+															<th>Items</th>
+														</tr>
+													</thead>
+													<tbody>
+														<?php foreach ($orders as $order) : ?>
+															<tr>
+																<td>
+																	<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
+																		#<?php echo esc_html((string)$order['id']); ?>
+																	</a>
+																</td>
+																<td><?php echo esc_html($order['date'] ?: ''); ?></td>
+																<td><?php echo esc_html(wc_price((float)$order['total'])); ?></td>
+																<td><?php echo esc_html($order['summary']); ?></td>
+															</tr>
+														<?php endforeach; ?>
+													</tbody>
+												</table>
+											<?php else : ?>
+												<p style="margin-top:12px;">No transactions found for this certificate.</p>
+											<?php endif; ?>
+										</div>
+									</div>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
+		</div>
+		<script>
+		(function(){
+			function closeModal(modal){
+				if(!modal) return;
+				modal.style.display = 'none';
+			}
+			document.addEventListener('click', function(event){
+				var link = event.target.closest('.pbb-gc-modal-link');
+				if (link) {
+					event.preventDefault();
+					var id = link.getAttribute('data-modal-id');
+					var modal = document.getElementById(id);
+					if (modal) {
+						modal.style.display = 'block';
+					}
+					return;
+				}
+				var closeBtn = event.target.closest('.pbb-gc-modal-close');
+				if (closeBtn) {
+					var modalEl = closeBtn.closest('.pbb-gc-modal');
+					closeModal(modalEl);
+					return;
+				}
+				var overlay = event.target.closest('.pbb-gc-modal__overlay');
+				if (overlay) {
+					var overlayModal = overlay.closest('.pbb-gc-modal');
+					closeModal(overlayModal);
+				}
+			});
+		})();
+		</script>
 	<?php
 
 	return (string)ob_get_clean();
