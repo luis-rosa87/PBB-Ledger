@@ -540,7 +540,11 @@ function pbb_gc_deduct_balance(string $cert_code, float $amount, int $order_id =
 	$remaining = (float)$row['remaining_amount'];
 	$new_remaining = $remaining - $amount;
 
-	return pbb_gc_update_remaining($row['cert_code'], $new_remaining, $order_id);
+	$ok = pbb_gc_update_remaining($row['cert_code'], $new_remaining, $order_id);
+	if ($ok && $order_id > 0) {
+		add_post_meta($order_id, $GLOBALS['wpdb']->prefix . 'pbb_gc_order_log', (string)$row['serial_raw']);
+	}
+	return $ok;
 }
 
 /**
@@ -984,6 +988,26 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 		$order_id = (int)$order_id;
 		if ($order_id > 0) {
 			$order_ids[$order_id] = true;
+		}
+	}
+
+	if ($serial_raw > 0) {
+		$meta_key = $wpdb->prefix . 'pbb_gc_order_log';
+		$log_rows = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT pm.post_id
+				FROM {$wpdb->postmeta} pm
+				WHERE pm.meta_key = %s
+				  AND pm.meta_value = %s",
+				$meta_key,
+				(string)$serial_raw
+			)
+		);
+		foreach ($log_rows as $order_id) {
+			$order_id = (int)$order_id;
+			if ($order_id > 0) {
+				$order_ids[$order_id] = true;
+			}
 		}
 	}
 
