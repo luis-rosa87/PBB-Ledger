@@ -1448,7 +1448,9 @@ function pbb_gc_render_flamingo_serials(): string {
 	?>
 	<div class="pbb-gc-flamingo-serials">
 		<?php if (!$serials) : ?>
-			<p>No Flamingo serial numbers found.</p>
+			<div class="pbb-gc-empty" style="padding:12px 16px;border:1px solid #d0d0d0;border-radius:8px;background:#f7f7f7;color:#333;text-align:center;">
+				No gift certificates found
+			</div>
 		<?php else : ?>
 			<div class="pbb-gc-accordion-search" style="margin-bottom:12px;">
 				<input type="text" class="pbb-gc-accordion-search-input" placeholder="Search certificates, recipients, or senders" style="width:100%;max-width:420px;padding:8px 10px;" />
