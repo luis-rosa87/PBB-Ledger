@@ -992,12 +992,12 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 		$order = wc_get_order($order_id);
 		if (!$order) continue;
 
-		$orders[] = [
-			'id' => $order_id,
-			'summary' => pbb_gc_get_order_items_summary($order_id),
-			'total' => $order->get_total(),
-			'date' => $order->get_date_created() ? $order->get_date_created()->date('Y-m-d H:i:s') : '',
-		];
+			$orders[] = [
+				'id' => $order_id,
+				'summary' => pbb_gc_get_order_items_summary($order_id),
+				'total' => $order->get_total(),
+				'date' => $order->get_date_created() ? $order->get_date_created()->date('Y-m-d') : '',
+			];
 	}
 
 	return $orders;
@@ -1236,7 +1236,7 @@ function pbb_gc_render_flamingo_serials(): string {
 								<td colspan="7">
 									<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
 										<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
-										<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;">
+											<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;max-height:80vh;overflow:auto;">
 											<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
 												<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
 												<button type="button" class="pbb-gc-modal-close button">Close</button>
@@ -1245,9 +1245,8 @@ function pbb_gc_render_flamingo_serials(): string {
 												<table class="shop_table shop_table_responsive" style="margin-top:12px;">
 													<thead>
 														<tr>
-															<th>Order</th>
+															<th>Order #</th>
 															<th>Date</th>
-															<th>Total</th>
 															<th>Items</th>
 														</tr>
 													</thead>
@@ -1260,8 +1259,7 @@ function pbb_gc_render_flamingo_serials(): string {
 																	</a>
 																</td>
 																<td><?php echo esc_html($order['date'] ?: ''); ?></td>
-																<td><?php echo esc_html(wc_price((float)$order['total'])); ?></td>
-																<td><?php echo esc_html($order['summary']); ?></td>
+																<td><?php echo wp_kses_post($order['summary']); ?></td>
 															</tr>
 														<?php endforeach; ?>
 													</tbody>
