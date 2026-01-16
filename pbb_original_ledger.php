@@ -1006,6 +1006,8 @@ function pbb_gc_render_flamingo_serials(): string {
 	global $wpdb;
 	$serials = [];
 	$serial_keys = [
+		'_serial_number',
+		'_meta',
 		'serial_number',
 		'_field_serial_number',
 		'field_serial_number',
@@ -1015,7 +1017,7 @@ function pbb_gc_render_flamingo_serials(): string {
 	$placeholders = implode(',', array_fill(0, count($serial_keys), '%s'));
 
 	$sql = $wpdb->prepare(
-		"SELECT pm.meta_value
+		"SELECT pm.meta_key, pm.meta_value
 		FROM {$wpdb->posts} p
 		INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
 		WHERE p.post_type = %s
@@ -1024,9 +1026,21 @@ function pbb_gc_render_flamingo_serials(): string {
 		array_merge(['flamingo_inbound'], $serial_keys)
 	);
 
-	$values = $wpdb->get_col($sql);
-	foreach ($values as $value) {
-		$serial_raw = (int)preg_replace('/[^0-9]/', '', (string)$value);
+	$rows = $wpdb->get_results($sql, ARRAY_A);
+	foreach ($rows as $row) {
+		$meta_key = (string)($row['meta_key'] ?? '');
+		$meta_value = $row['meta_value'] ?? '';
+
+		if ($meta_key === '_meta') {
+			$meta_array = maybe_unserialize($meta_value);
+			if (is_array($meta_array) && isset($meta_array['serial_number'])) {
+				$meta_value = $meta_array['serial_number'];
+			} else {
+				continue;
+			}
+		}
+
+		$serial_raw = (int)preg_replace('/[^0-9]/', '', (string)$meta_value);
 		if ($serial_raw <= 0) continue;
 		$serials[] = pbb_gc_serial_to_code($serial_raw);
 	}
