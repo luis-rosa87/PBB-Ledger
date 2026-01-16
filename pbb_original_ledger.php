@@ -56,6 +56,7 @@ function pbb_gc_allowed_variation_ids(): array {
 register_activation_hook(__FILE__, function () {
 	global $wpdb;
 	$table = $wpdb->prefix . 'pbb_gc_balances';
+	$manual_table = $wpdb->prefix . 'pbb_gc_manual_transactions';
 	$charset = $wpdb->get_charset_collate();
 
 	require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -78,6 +79,20 @@ register_activation_hook(__FILE__, function () {
 	) {$charset};";
 
 	dbDelta($sql);
+
+	$sql_manual = "CREATE TABLE {$manual_table} (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		cert_code VARCHAR(32) NOT NULL,
+		serial_raw BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		items_json LONGTEXT NOT NULL,
+		items_total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+		created_at DATETIME NOT NULL,
+		PRIMARY KEY (id),
+		KEY cert_code (cert_code),
+		KEY serial_raw (serial_raw)
+	) {$charset};";
+
+	dbDelta($sql_manual);
 });
 
 /** =========================
@@ -470,6 +485,11 @@ function pbb_gc_table(): string {
 	return $wpdb->prefix . 'pbb_gc_balances';
 }
 
+function pbb_gc_manual_table(): string {
+	global $wpdb;
+	return $wpdb->prefix . 'pbb_gc_manual_transactions';
+}
+
 function pbb_gc_get_balance_row(string $cert_code): ?array {
 	global $wpdb;
 	$table = pbb_gc_table();
@@ -505,6 +525,94 @@ function pbb_gc_insert_balance(array $data): bool {
 	]);
 
 	return $ok;
+}
+
+function pbb_gc_get_manual_transactions(string $cert_code): array {
+	global $wpdb;
+	$table = pbb_gc_manual_table();
+
+	$cert_code = pbb_gc_normalize_code($cert_code);
+	if ($cert_code === '') return [];
+
+	$rows = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT * FROM {$table} WHERE cert_code = %s ORDER BY created_at DESC",
+			$cert_code
+		),
+		ARRAY_A
+	);
+
+	$transactions = [];
+	foreach ($rows as $row) {
+		$items = json_decode((string)$row['items_json'], true);
+		if (!is_array($items)) {
+			$items = [];
+		}
+
+		$summary_parts = [];
+		foreach ($items as $item) {
+			$name = isset($item['name']) ? (string)$item['name'] : '';
+			$price = isset($item['price']) ? (float)$item['price'] : 0.0;
+			if ($name === '') continue;
+			$summary_parts[] = $name . ' (' . wc_price($price) . ')';
+		}
+
+		$transactions[] = [
+			'id' => (int)$row['id'],
+			'type' => 'manual',
+			'summary' => implode(', ', $summary_parts),
+			'items_total' => (float)$row['items_total'],
+			'date' => (string)$row['created_at'],
+		];
+	}
+
+	return $transactions;
+}
+
+function pbb_gc_insert_manual_transaction(string $cert_code, array $items): ?array {
+	global $wpdb;
+	$table = pbb_gc_manual_table();
+
+	$cert_code = pbb_gc_normalize_code($cert_code);
+	if ($cert_code === '') return null;
+
+	$serial_raw = pbb_gc_code_to_serial_raw($cert_code);
+	$clean_items = [];
+	$items_total = 0.0;
+
+	foreach ($items as $item) {
+		if (!is_array($item)) continue;
+		$name = isset($item['name']) ? sanitize_text_field((string)$item['name']) : '';
+		$price = isset($item['price']) ? pbb_gc_money_to_decimal($item['price']) : 0.0;
+		if ($name === '' || $price <= 0) continue;
+		$clean_items[] = [
+			'name' => $name,
+			'price' => $price,
+		];
+		$items_total += $price;
+	}
+
+	if (!$clean_items || $items_total <= 0) return null;
+
+	$now = current_time('mysql');
+	$ok = (bool)$wpdb->insert(
+		$table,
+		[
+			'cert_code' => $cert_code,
+			'serial_raw' => $serial_raw,
+			'items_json' => wp_json_encode($clean_items),
+			'items_total' => $items_total,
+			'created_at' => $now,
+		],
+		['%s', '%d', '%s', '%f', '%s']
+	);
+
+	if (!$ok) return null;
+
+	return [
+		'items_total' => $items_total,
+		'created_at' => $now,
+	];
 }
 
 function pbb_gc_update_remaining(string $cert_code, float $remaining, int $order_id = 0): bool {
@@ -545,6 +653,42 @@ function pbb_gc_deduct_balance(string $cert_code, float $amount, int $order_id =
 		add_post_meta($order_id, $GLOBALS['wpdb']->prefix . 'pbb_gc_order_log', (string)$row['serial_raw']);
 	}
 	return $ok;
+}
+
+add_action('wp_ajax_pbb_gc_add_manual_transaction', 'pbb_gc_add_manual_transaction');
+add_action('wp_ajax_nopriv_pbb_gc_add_manual_transaction', 'pbb_gc_add_manual_transaction');
+
+function pbb_gc_add_manual_transaction() {
+	if (!current_user_can('manage_woocommerce')) {
+		wp_send_json_error(['message' => 'Permission denied.']);
+	}
+
+	$nonce = (string)($_POST['security'] ?? '');
+	if (!wp_verify_nonce($nonce, 'pbb_gc_manual_txn')) {
+		wp_send_json_error(['message' => 'Security check failed.']);
+	}
+
+	$cert_code = (string)($_POST['cert_code'] ?? '');
+	$items = $_POST['items'] ?? [];
+	if (!is_array($items)) {
+		wp_send_json_error(['message' => 'Invalid items.']);
+	}
+
+	$lookup = pbb_gc_get_or_create_balance_from_flamingo($cert_code);
+	$balance = $lookup['balance'] ?? null;
+	if (!$balance) {
+		wp_send_json_error(['message' => 'Certificate not found.']);
+	}
+
+	$transaction = pbb_gc_insert_manual_transaction($balance['cert_code'], $items);
+	if (!$transaction) {
+		wp_send_json_error(['message' => 'Unable to save transaction.']);
+	}
+
+	$new_remaining = (float)$balance['remaining_amount'] - (float)$transaction['items_total'];
+	pbb_gc_update_remaining($balance['cert_code'], $new_remaining);
+
+	wp_send_json_success(['message' => 'Manual transaction added.']);
 }
 
 /**
@@ -950,6 +1094,7 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 
 	global $wpdb;
 	$table = pbb_gc_table();
+	$manual_transactions = pbb_gc_get_manual_transactions($cert_code);
 
 	$order_ids = [];
 	$serial_raw = pbb_gc_code_to_serial_raw($cert_code);
@@ -1049,6 +1194,10 @@ function pbb_gc_get_orders_for_certificate(string $cert_code): array {
 				'total' => $order->get_total(),
 				'date' => $order->get_date_created() ? $order->get_date_created()->date('Y-m-d') : '',
 			];
+	}
+
+	foreach ($manual_transactions as $manual) {
+		$orders[] = $manual;
 	}
 
 	return $orders;
@@ -1277,14 +1426,19 @@ function pbb_gc_render_flamingo_serials(): string {
 								</td>
 								<td>
 									<?php
-									$orders = pbb_gc_get_orders_for_certificate($serial['serial'] ?? '');
-									$modal_id = 'pbb-gc-modal-' . esc_attr($serial['serial'] ?? 'missing');
-									echo '<a href="#" class="pbb-gc-modal-link" data-modal-id="' . esc_attr($modal_id) . '">View</a>';
-									?>
-								</td>
-							</tr>
-							<tr class="pbb-gc-modal-row">
-								<td colspan="7">
+										$orders = pbb_gc_get_orders_for_certificate($serial['serial'] ?? '');
+										usort($orders, function ($a, $b) {
+											return strcmp((string)($b['date'] ?? ''), (string)($a['date'] ?? ''));
+										});
+										$modal_id = 'pbb-gc-modal-' . esc_attr($serial['serial'] ?? 'missing');
+										$manual_id = 'pbb-gc-manual-' . esc_attr($serial['serial'] ?? 'missing');
+										$manual_nonce = wp_create_nonce('pbb_gc_manual_txn');
+										echo '<a href="#" class="pbb-gc-modal-link" data-modal-id="' . esc_attr($modal_id) . '">View</a>';
+										?>
+									</td>
+								</tr>
+								<tr class="pbb-gc-modal-row">
+									<td colspan="7">
 									<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
 										<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
 											<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;max-height:80vh;overflow:auto;">
@@ -1294,10 +1448,13 @@ function pbb_gc_render_flamingo_serials(): string {
 														.pbb-gc-modal__content table { width: 100%; display: block; overflow-x: auto; }
 													}
 												</style>
-											<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-												<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
-												<button type="button" class="pbb-gc-modal-close button">Close</button>
-											</div>
+												<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+													<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
+													<div style="display:flex;gap:8px;align-items:center;">
+														<button type="button" class="pbb-gc-manual-open button" data-manual-id="<?php echo esc_attr($manual_id); ?>">Add Manual Transaction</button>
+														<button type="button" class="pbb-gc-modal-close button">Close</button>
+													</div>
+												</div>
 											<?php if ($orders) : ?>
 												<table class="shop_table shop_table_responsive" style="margin-top:12px;">
 													<thead>
@@ -1309,29 +1466,33 @@ function pbb_gc_render_flamingo_serials(): string {
 															</tr>
 														</thead>
 														<tbody>
-															<?php foreach ($orders as $order) : ?>
-																<tr>
-																	<td>
-																		<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
-																			#<?php echo esc_html((string)$order['id']); ?>
-																		</a>
-																	</td>
-																	<td><?php echo esc_html($order['date'] ?: ''); ?></td>
-																	<td><?php echo wp_kses_post($order['summary']); ?></td>
-																	<td><?php echo wp_kses_post(wc_price((float)$order['items_total'])); ?></td>
-																</tr>
-															<?php endforeach; ?>
+																<?php foreach ($orders as $order) : ?>
+																	<tr>
+																		<td>
+																			<?php if (($order['type'] ?? '') === 'manual') : ?>
+																				Custom
+																			<?php else : ?>
+																				<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
+																					#<?php echo esc_html((string)$order['id']); ?>
+																				</a>
+																			<?php endif; ?>
+																		</td>
+																		<td><?php echo esc_html($order['date'] ?: ''); ?></td>
+																		<td><?php echo wp_kses_post($order['summary']); ?></td>
+																		<td><?php echo wp_kses_post(wc_price((float)$order['items_total'])); ?></td>
+																	</tr>
+																<?php endforeach; ?>
 															<?php
 															$original_amount = $serial['amount'];
 															if (!is_numeric($original_amount)) {
 																$original_amount = 0.0;
 															}
-															$orders_total = 0.0;
-															foreach ($orders as $order) {
-																$orders_total += (float)$order['items_total'];
-															}
-															$remaining_calc = $original_amount - $orders_total;
-															?>
+																$orders_total = 0.0;
+																foreach ($orders as $order) {
+																	$orders_total += (float)$order['items_total'];
+																}
+																$remaining_calc = $original_amount - $orders_total;
+																?>
 															<tr>
 																<td colspan="4" style="text-align:right;">
 																	<strong>Original - Orders = Remaining:</strong>
@@ -1348,13 +1509,25 @@ function pbb_gc_render_flamingo_serials(): string {
 															</tr>
 														</tbody>
 													</table>
-											<?php else : ?>
-												<p style="margin-top:12px;">No transactions found for this certificate.</p>
-											<?php endif; ?>
+												<?php else : ?>
+													<p style="margin-top:12px;">No transactions found for this certificate.</p>
+												<?php endif; ?>
+											</div>
 										</div>
-									</div>
-								</td>
-							</tr>
+										<div id="<?php echo esc_attr($manual_id); ?>" class="pbb-gc-manual-modal" data-cert="<?php echo esc_attr($serial['serial']); ?>" data-nonce="<?php echo esc_attr($manual_nonce); ?>" style="display:none;">
+											<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;"></div>
+											<div class="pbb-gc-modal__content" style="position:fixed;top:12%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:600px;width:92%;z-index:10001;">
+												<h3 style="margin:0 0 12px;">Add Manual Transaction</h3>
+												<div class="pbb-gc-manual-items"></div>
+												<button type="button" class="button pbb-gc-add-item" style="margin:8px 0;">Add item</button>
+												<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+													<button type="button" class="button pbb-gc-manual-cancel">Cancel</button>
+													<button type="button" class="button button-primary pbb-gc-manual-finish">Finish</button>
+												</div>
+											</div>
+										</div>
+									</td>
+								</tr>
 						<?php endforeach; ?>
 					</tbody>
 				</table>
@@ -1365,6 +1538,17 @@ function pbb_gc_render_flamingo_serials(): string {
 			function closeModal(modal){
 				if(!modal) return;
 				modal.style.display = 'none';
+			}
+			function addManualItemRow(container){
+				if(!container) return;
+				var row = document.createElement('div');
+				row.style.display = 'flex';
+				row.style.gap = '8px';
+				row.style.marginBottom = '8px';
+				row.innerHTML = '<input type="text" class="pbb-gc-item-name" placeholder="Item name" style="flex:1;min-width:120px;" />'
+					+ '<input type="number" class="pbb-gc-item-price" placeholder="Price" step="0.01" min="0" style="width:120px;" />'
+					+ '<button type="button" class="button pbb-gc-remove-item">Remove</button>';
+				container.appendChild(row);
 			}
 			document.addEventListener('click', function(event){
 				var link = event.target.closest('.pbb-gc-modal-link');
@@ -1387,6 +1571,92 @@ function pbb_gc_render_flamingo_serials(): string {
 				if (overlay) {
 					var overlayModal = overlay.closest('.pbb-gc-modal');
 					closeModal(overlayModal);
+				}
+				var manualOpen = event.target.closest('.pbb-gc-manual-open');
+				if (manualOpen) {
+					event.preventDefault();
+					var manualId = manualOpen.getAttribute('data-manual-id');
+					var manualModal = document.getElementById(manualId);
+					if (manualModal) {
+						var itemsContainer = manualModal.querySelector('.pbb-gc-manual-items');
+						if (itemsContainer && itemsContainer.children.length === 0) {
+							addManualItemRow(itemsContainer);
+						}
+						manualModal.style.display = 'block';
+					}
+					return;
+				}
+				var manualCancel = event.target.closest('.pbb-gc-manual-cancel');
+				if (manualCancel) {
+					var manualModalCancel = manualCancel.closest('.pbb-gc-manual-modal');
+					if (manualModalCancel) {
+						manualModalCancel.style.display = 'none';
+					}
+					return;
+				}
+				var manualOverlay = event.target.closest('.pbb-gc-manual-modal .pbb-gc-modal__overlay');
+				if (manualOverlay) {
+					var manualOverlayModal = manualOverlay.closest('.pbb-gc-manual-modal');
+					if (manualOverlayModal) {
+						manualOverlayModal.style.display = 'none';
+					}
+					return;
+				}
+				var addItemBtn = event.target.closest('.pbb-gc-add-item');
+				if (addItemBtn) {
+					var addModal = addItemBtn.closest('.pbb-gc-manual-modal');
+					if (addModal) {
+						var addContainer = addModal.querySelector('.pbb-gc-manual-items');
+						addManualItemRow(addContainer);
+					}
+					return;
+				}
+				var removeItemBtn = event.target.closest('.pbb-gc-remove-item');
+				if (removeItemBtn) {
+					var row = removeItemBtn.closest('div');
+					if (row && row.parentNode) {
+						row.parentNode.removeChild(row);
+					}
+					return;
+				}
+				var finishBtn = event.target.closest('.pbb-gc-manual-finish');
+				if (finishBtn) {
+					var finishModal = finishBtn.closest('.pbb-gc-manual-modal');
+					if (!finishModal) return;
+					var certCode = finishModal.getAttribute('data-cert') || '';
+					var nonce = finishModal.getAttribute('data-nonce') || '';
+					var itemRows = finishModal.querySelectorAll('.pbb-gc-manual-items > div');
+					var items = [];
+					itemRows.forEach(function(rowEl){
+						var name = rowEl.querySelector('.pbb-gc-item-name');
+						var price = rowEl.querySelector('.pbb-gc-item-price');
+						if (!name || !price) return;
+						var nameVal = name.value || '';
+						var priceVal = price.value || '';
+						if (nameVal.trim() === '' || priceVal === '') return;
+						items.push({ name: nameVal.trim(), price: priceVal });
+					});
+					var url = (window.wc_checkout_params && window.wc_checkout_params.ajax_url) ? window.wc_checkout_params.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php');
+					var form = new FormData();
+					form.append('action', 'pbb_gc_add_manual_transaction');
+					form.append('security', nonce);
+					form.append('cert_code', certCode);
+					items.forEach(function(item, index){
+						form.append('items[' + index + '][name]', item.name);
+						form.append('items[' + index + '][price]', item.price);
+					});
+					fetch(url, { method:'POST', credentials:'same-origin', body: form })
+						.then(function(r){ return r.json(); })
+						.then(function(res){
+							if (res && res.success) {
+								window.location.reload();
+							} else {
+								alert((res && res.data && res.data.message) ? res.data.message : 'Unable to add transaction.');
+							}
+						})
+						.catch(function(){
+							alert('Request failed. Please try again.');
+						});
 				}
 			});
 		})();
