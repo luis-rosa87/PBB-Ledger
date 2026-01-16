@@ -1027,7 +1027,7 @@ function pbb_gc_render_flamingo_serials(): string {
 	$placeholders = implode(',', array_fill(0, count($serial_keys), '%s'));
 
 	$sql = $wpdb->prepare(
-		"SELECT pm.meta_key, pm.meta_value
+		"SELECT p.ID, pm.meta_key, pm.meta_value
 		FROM {$wpdb->posts} p
 		INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
 		WHERE p.post_type = %s
@@ -1038,6 +1038,7 @@ function pbb_gc_render_flamingo_serials(): string {
 
 	$rows = $wpdb->get_results($sql, ARRAY_A);
 	foreach ($rows as $row) {
+		$post_id = (int)($row['ID'] ?? 0);
 		$meta_key = (string)($row['meta_key'] ?? '');
 		$meta_value = $row['meta_value'] ?? '';
 
@@ -1052,7 +1053,10 @@ function pbb_gc_render_flamingo_serials(): string {
 
 		$serial_raw = (int)preg_replace('/[^0-9]/', '', (string)$meta_value);
 		if ($serial_raw <= 0) continue;
-		$serials[] = pbb_gc_serial_to_code($serial_raw);
+		$serials[] = [
+			'serial' => pbb_gc_serial_to_code($serial_raw),
+			'amount' => $post_id > 0 ? pbb_gc_extract_gift_amount_from_flamingo_post($post_id) : null,
+		];
 	}
 
 	if (!$serials) {
@@ -1069,12 +1073,23 @@ function pbb_gc_render_flamingo_serials(): string {
 			foreach ($q->posts as $post_id) {
 				$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
 				if ($serial_raw <= 0) continue;
-				$serials[] = pbb_gc_serial_to_code($serial_raw);
+				$serials[] = [
+					'serial' => pbb_gc_serial_to_code($serial_raw),
+					'amount' => pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id),
+				];
 			}
 		}
 	}
 
-	$serials = array_values(array_unique($serials));
+	$serial_map = [];
+	foreach ($serials as $serial) {
+		$key = $serial['serial'] ?? '';
+		if ($key === '') continue;
+		if (!isset($serial_map[$key])) {
+			$serial_map[$key] = $serial;
+		}
+	}
+	$serials = array_values($serial_map);
 
 	ob_start();
 	?>
@@ -1082,11 +1097,31 @@ function pbb_gc_render_flamingo_serials(): string {
 		<?php if (!$serials) : ?>
 			<p>No Flamingo serial numbers found.</p>
 		<?php else : ?>
-			<ul>
-				<?php foreach ($serials as $serial) : ?>
-					<li><?php echo esc_html($serial); ?></li>
-				<?php endforeach; ?>
-			</ul>
+			<table class="shop_table shop_table_responsive">
+				<thead>
+					<tr>
+						<th>Certificate</th>
+						<th>Gift Amount</th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ($serials as $serial) : ?>
+						<tr>
+							<td><?php echo esc_html($serial['serial']); ?></td>
+							<td>
+								<?php
+								$amount = $serial['amount'];
+								if (is_numeric($amount)) {
+									echo esc_html(pbb_gc_decimal_to_money((float)$amount));
+								} else {
+									echo '&mdash;';
+								}
+								?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
 		<?php endif; ?>
 	</div>
 	<?php
