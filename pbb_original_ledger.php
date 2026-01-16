@@ -1131,6 +1131,9 @@ function pbb_gc_render_flamingo_serials(): string {
 							<td>
 								<?php
 								$remaining = $serial['remaining'];
+								if (!is_numeric($remaining)) {
+									$remaining = $serial['amount'];
+								}
 								if (is_numeric($remaining)) {
 									echo esc_html(pbb_gc_decimal_to_money((float)$remaining));
 								} else {
