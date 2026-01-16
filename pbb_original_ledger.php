@@ -1317,6 +1317,7 @@ function pbb_gc_render_flamingo_serials(): string {
 		$serial_raw = (int)preg_replace('/[^0-9]/', '', (string)$meta_value);
 		if ($serial_raw <= 0) continue;
 		$serials[] = [
+			'post_id' => $post_id,
 			'serial' => pbb_gc_serial_to_code($serial_raw),
 			'amount' => $post_id > 0 ? pbb_gc_extract_gift_amount_from_flamingo_post($post_id) : null,
 			'remaining' => null,
@@ -1340,6 +1341,7 @@ function pbb_gc_render_flamingo_serials(): string {
 				$serial_raw = pbb_gc_get_flamingo_serial_raw((int)$post_id);
 				if ($serial_raw <= 0) continue;
 					$serials[] = [
+						'post_id' => (int)$post_id,
 						'serial' => pbb_gc_serial_to_code($serial_raw),
 						'amount' => pbb_gc_extract_gift_amount_from_flamingo_post((int)$post_id),
 						'remaining' => null,
@@ -1378,6 +1380,8 @@ function pbb_gc_render_flamingo_serials(): string {
 				<thead>
 						<tr>
 							<th>Certificate</th>
+							<th>Recipient</th>
+							<th>Sender</th>
 							<th>Gift Amount</th>
 							<th>Remaining Funds</th>
 							<th>Date Purchased</th>
@@ -1389,6 +1393,18 @@ function pbb_gc_render_flamingo_serials(): string {
 					<?php foreach ($serials as $serial) : ?>
 						<tr>
 							<td><?php echo esc_html($serial['serial']); ?></td>
+							<td>
+								<?php
+								$recipient = isset($serial['post_id']) ? pbb_gc_get_flamingo_field_value((int)$serial['post_id'], 'to') : '';
+								echo $recipient !== '' ? esc_html($recipient) : '&mdash;';
+								?>
+							</td>
+							<td>
+								<?php
+								$sender = isset($serial['post_id']) ? pbb_gc_get_flamingo_field_value((int)$serial['post_id'], 'from') : '';
+								echo $sender !== '' ? esc_html($sender) : '&mdash;';
+								?>
+							</td>
 							<td>
 								<?php
 								$amount = $serial['amount'];
@@ -1438,7 +1454,7 @@ function pbb_gc_render_flamingo_serials(): string {
 									</td>
 								</tr>
 								<tr class="pbb-gc-modal-row">
-									<td colspan="7">
+									<td colspan="8">
 									<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
 										<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
 											<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;max-height:80vh;overflow:auto;">
