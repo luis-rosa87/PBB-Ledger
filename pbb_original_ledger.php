@@ -1385,181 +1385,197 @@ function pbb_gc_render_flamingo_serials(): string {
 		<?php if (!$serials) : ?>
 			<p>No Flamingo serial numbers found.</p>
 		<?php else : ?>
-			<table class="shop_table shop_table_responsive">
-				<thead>
-						<tr>
-							<th>Certificate</th>
-							<th>Recipient</th>
-							<th>Sender</th>
-							<th>Gift Amount</th>
-							<th>Remaining Funds</th>
-							<th>Date Purchased</th>
-							<th>Last Transaction</th>
-								<th>Transactions</th>
-						</tr>
-					</thead>
-					<tbody>
-					<?php foreach ($serials as $serial) : ?>
-						<tr>
-							<td><?php echo esc_html($serial['serial']); ?></td>
-							<td>
+			<div class="pbb-gc-accordion">
+				<style>
+					.pbb-gc-accordion__item { border: 1px solid #e2e2e2; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+					.pbb-gc-accordion__header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f7f7f7; cursor: pointer; }
+					.pbb-gc-accordion__title { font-weight: 600; }
+					.pbb-gc-accordion__remaining { font-weight: 600; }
+					.pbb-gc-accordion__body { display: none; padding: 12px 16px; background: #fff; }
+					.pbb-gc-accordion__row { display: flex; gap: 8px; margin-bottom: 8px; }
+					.pbb-gc-accordion__label { min-width: 150px; font-weight: 600; }
+					@media (max-width: 640px) {
+						.pbb-gc-accordion__row { flex-direction: column; gap: 4px; }
+						.pbb-gc-accordion__label { min-width: 0; }
+					}
+				</style>
+				<?php foreach ($serials as $serial) : ?>
+					<?php
+					$amount = $serial['amount'];
+					$remaining = $serial['remaining'];
+					if (!is_numeric($remaining)) {
+						$remaining = $serial['amount'];
+					}
+					$purchased_at = $serial['purchased_at'] ?? '';
+					$last_transaction = $serial['last_transaction'] ?? '';
+					$recipient = isset($serial['post_id']) ? pbb_gc_get_flamingo_field_value((int)$serial['post_id'], 'to') : '';
+					$sender = isset($serial['post_id']) ? pbb_gc_get_flamingo_field_value((int)$serial['post_id'], 'from') : '';
+					$orders = pbb_gc_get_orders_for_certificate($serial['serial'] ?? '');
+					usort($orders, function ($a, $b) {
+						return strcmp((string)($b['date'] ?? ''), (string)($a['date'] ?? ''));
+					});
+					$modal_id = 'pbb-gc-modal-' . esc_attr($serial['serial'] ?? 'missing');
+					$manual_id = 'pbb-gc-manual-' . esc_attr($serial['serial'] ?? 'missing');
+					$manual_nonce = wp_create_nonce('pbb_gc_manual_txn');
+					?>
+					<div class="pbb-gc-accordion__item">
+						<div class="pbb-gc-accordion__header" data-accordion-toggle>
+							<span class="pbb-gc-accordion__title"><?php echo esc_html($serial['serial']); ?></span>
+							<span class="pbb-gc-accordion__remaining">
 								<?php
-								$recipient = isset($serial['post_id']) ? pbb_gc_get_flamingo_field_value((int)$serial['post_id'], 'to') : '';
-								echo $recipient !== '' ? esc_html($recipient) : '&mdash;';
-								?>
-							</td>
-							<td>
-								<?php
-								$sender = isset($serial['post_id']) ? pbb_gc_get_flamingo_field_value((int)$serial['post_id'], 'from') : '';
-								echo $sender !== '' ? esc_html($sender) : '&mdash;';
-								?>
-							</td>
-							<td>
-								<?php
-								$amount = $serial['amount'];
-								if (is_numeric($amount)) {
-									echo esc_html(pbb_gc_decimal_to_money((float)$amount));
-								} else {
-									echo '&mdash;';
-									}
-									?>
-							</td>
-							<td>
-								<?php
-								$remaining = $serial['remaining'];
-								if (!is_numeric($remaining)) {
-									$remaining = $serial['amount'];
-								}
 								if (is_numeric($remaining)) {
 									echo esc_html(pbb_gc_decimal_to_money((float)$remaining));
 								} else {
 									echo '&mdash;';
 								}
 								?>
-							</td>
-							<td>
-								<?php
-								$purchased_at = $serial['purchased_at'] ?? '';
-								echo $purchased_at !== '' ? esc_html($purchased_at) : '&mdash;';
-								?>
-							</td>
-								<td>
-									<?php
-									$last_transaction = $serial['last_transaction'] ?? '';
-									echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;';
-									?>
-								</td>
-								<td>
-									<?php
-										$orders = pbb_gc_get_orders_for_certificate($serial['serial'] ?? '');
-										usort($orders, function ($a, $b) {
-											return strcmp((string)($b['date'] ?? ''), (string)($a['date'] ?? ''));
-										});
-										$modal_id = 'pbb-gc-modal-' . esc_attr($serial['serial'] ?? 'missing');
-										$manual_id = 'pbb-gc-manual-' . esc_attr($serial['serial'] ?? 'missing');
-										$manual_nonce = wp_create_nonce('pbb_gc_manual_txn');
-										echo '<a href="#" class="pbb-gc-modal-link" data-modal-id="' . esc_attr($modal_id) . '">View</a>';
-										?>
-									</td>
-								</tr>
-								<tr class="pbb-gc-modal-row">
-									<td colspan="8">
-									<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
-										<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
-											<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;max-height:80vh;overflow:auto;">
-												<style>
-													@media (max-width: 640px) {
-														.pbb-gc-modal__content { top: 5%; width: 95%; padding: 12px; }
-														.pbb-gc-modal__content table { width: 100%; display: block; overflow-x: auto; }
-													}
-												</style>
-												<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-													<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
-													<div style="display:flex;gap:8px;align-items:center;">
-														<button type="button" class="pbb-gc-manual-open button" data-manual-id="<?php echo esc_attr($manual_id); ?>">Add Manual Transaction</button>
-														<button type="button" class="pbb-gc-modal-close button">Close</button>
-													</div>
-												</div>
-											<?php if ($orders) : ?>
-												<table class="shop_table shop_table_responsive" style="margin-top:12px;">
-													<thead>
-															<tr>
-																<th>Order #</th>
-																<th>Date</th>
-																<th>Items</th>
-																<th>Items Total</th>
-															</tr>
-														</thead>
-														<tbody>
-																<?php foreach ($orders as $order) : ?>
-																	<tr>
-																		<td>
-																			<?php if (($order['type'] ?? '') === 'manual') : ?>
-																				Custom
-																			<?php else : ?>
-																				<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
-																					#<?php echo esc_html((string)$order['id']); ?>
-																				</a>
-																			<?php endif; ?>
-																		</td>
-																		<td><?php echo esc_html($order['date'] ?: ''); ?></td>
-																		<td><?php echo wp_kses_post($order['summary']); ?></td>
-																		<td><?php echo wp_kses_post(wc_price((float)$order['items_total'])); ?></td>
-																	</tr>
-																<?php endforeach; ?>
-															<?php
-															$original_amount = $serial['amount'];
-															if (!is_numeric($original_amount)) {
-																$original_amount = 0.0;
-															}
-																$orders_total = 0.0;
-																foreach ($orders as $order) {
-																	$orders_total += (float)$order['items_total'];
-																}
-																$remaining_calc = $original_amount - $orders_total;
-																?>
-															<tr>
-																<td colspan="4" style="text-align:right;">
-																	<strong>Original - Orders = Remaining:</strong>
-																	<?php
-																	echo esc_html(
-																		pbb_gc_decimal_to_money((float)$original_amount)
-																		. ' - '
-																		. pbb_gc_decimal_to_money((float)$orders_total)
-																		. ' = '
-																		. pbb_gc_decimal_to_money((float)$remaining_calc)
-																	);
-																	?>
-																</td>
-															</tr>
-														</tbody>
-													</table>
-												<?php else : ?>
-													<p style="margin-top:12px;">No transactions found for this certificate.</p>
-												<?php endif; ?>
-											</div>
-										</div>
-										<div id="<?php echo esc_attr($manual_id); ?>" class="pbb-gc-manual-modal" data-cert="<?php echo esc_attr($serial['serial']); ?>" data-nonce="<?php echo esc_attr($manual_nonce); ?>" style="display:none;">
-											<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;"></div>
-											<div class="pbb-gc-modal__content" style="position:fixed;top:12%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:600px;width:92%;z-index:10001;">
-												<h3 style="margin:0 0 12px;">Add Manual Transaction</h3>
-												<div class="pbb-gc-manual-items"></div>
-												<button type="button" class="button pbb-gc-add-item" style="margin:8px 0;">Add item</button>
-												<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
-													<button type="button" class="button pbb-gc-manual-cancel">Cancel</button>
-													<button type="button" class="button button-primary pbb-gc-manual-finish">Finish</button>
-												</div>
-											</div>
-										</div>
-									</td>
-								</tr>
-						<?php endforeach; ?>
-					</tbody>
-				</table>
+							</span>
+						</div>
+						<div class="pbb-gc-accordion__body">
+							<div class="pbb-gc-accordion__row">
+								<div class="pbb-gc-accordion__label">Original Amount</div>
+								<div><?php echo is_numeric($amount) ? esc_html(pbb_gc_decimal_to_money((float)$amount)) : '&mdash;'; ?></div>
+							</div>
+							<div class="pbb-gc-accordion__row">
+								<div class="pbb-gc-accordion__label">Recipient</div>
+								<div><?php echo $recipient !== '' ? esc_html($recipient) : '&mdash;'; ?></div>
+							</div>
+							<div class="pbb-gc-accordion__row">
+								<div class="pbb-gc-accordion__label">Sender</div>
+								<div><?php echo $sender !== '' ? esc_html($sender) : '&mdash;'; ?></div>
+							</div>
+							<div class="pbb-gc-accordion__row">
+								<div class="pbb-gc-accordion__label">Date Purchased</div>
+								<div><?php echo $purchased_at !== '' ? esc_html($purchased_at) : '&mdash;'; ?></div>
+							</div>
+							<div class="pbb-gc-accordion__row">
+								<div class="pbb-gc-accordion__label">Last Transaction</div>
+								<div><?php echo $last_transaction !== '' ? esc_html($last_transaction) : '&mdash;'; ?></div>
+							</div>
+							<div class="pbb-gc-accordion__row">
+								<div class="pbb-gc-accordion__label">Transactions</div>
+								<div><a href="#" class="pbb-gc-modal-link" data-modal-id="<?php echo esc_attr($modal_id); ?>">View</a></div>
+							</div>
+						</div>
+					</div>
+					<div id="<?php echo esc_attr($modal_id); ?>" class="pbb-gc-modal" style="display:none;">
+						<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;"></div>
+						<div class="pbb-gc-modal__content" style="position:fixed;top:10%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:720px;width:90%;z-index:9999;max-height:80vh;overflow:auto;">
+							<style>
+								@media (max-width: 640px) {
+									.pbb-gc-modal__content { top: 5%; width: 95%; padding: 12px; }
+									.pbb-gc-modal__content table { width: 100%; display: block; overflow-x: auto; }
+								}
+							</style>
+							<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+								<h3 style="margin:0;">Transactions for <?php echo esc_html($serial['serial']); ?></h3>
+								<div style="display:flex;gap:8px;align-items:center;">
+									<button type="button" class="pbb-gc-manual-open button" data-manual-id="<?php echo esc_attr($manual_id); ?>">Add Manual Transaction</button>
+									<button type="button" class="pbb-gc-modal-close button">Close</button>
+								</div>
+							</div>
+						<?php if ($orders) : ?>
+							<table class="shop_table shop_table_responsive" style="margin-top:12px;">
+								<thead>
+										<tr>
+											<th>Order #</th>
+											<th>Date</th>
+											<th>Items</th>
+											<th>Items Total</th>
+										</tr>
+									</thead>
+									<tbody>
+											<?php foreach ($orders as $order) : ?>
+												<tr>
+													<td>
+														<?php if (($order['type'] ?? '') === 'manual') : ?>
+															Custom
+														<?php else : ?>
+															<a href="<?php echo esc_url(admin_url('post.php?post=' . (int)$order['id'] . '&action=edit')); ?>" target="_blank" rel="noopener">
+																#<?php echo esc_html((string)$order['id']); ?>
+															</a>
+														<?php endif; ?>
+													</td>
+													<td><?php echo esc_html($order['date'] ?: ''); ?></td>
+													<td><?php echo wp_kses_post($order['summary']); ?></td>
+													<td><?php echo wp_kses_post(wc_price((float)$order['items_total'])); ?></td>
+												</tr>
+											<?php endforeach; ?>
+										<?php
+										$original_amount = $serial['amount'];
+										if (!is_numeric($original_amount)) {
+											$original_amount = 0.0;
+										}
+											$orders_total = 0.0;
+											foreach ($orders as $order) {
+												$orders_total += (float)$order['items_total'];
+											}
+											$remaining_calc = $original_amount - $orders_total;
+											?>
+										<tr>
+											<td colspan="4" style="text-align:right;">
+												<strong>Original - Orders = Remaining:</strong>
+												<?php
+												echo esc_html(
+													pbb_gc_decimal_to_money((float)$original_amount)
+													. ' - '
+													. pbb_gc_decimal_to_money((float)$orders_total)
+													. ' = '
+													. pbb_gc_decimal_to_money((float)$remaining_calc)
+												);
+												?>
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							<?php else : ?>
+								<p style="margin-top:12px;">No transactions found for this certificate.</p>
+							<?php endif; ?>
+						</div>
+					</div>
+					<div id="<?php echo esc_attr($manual_id); ?>" class="pbb-gc-manual-modal" data-cert="<?php echo esc_attr($serial['serial']); ?>" data-nonce="<?php echo esc_attr($manual_nonce); ?>" data-remaining="<?php echo esc_attr(is_numeric($remaining) ? (string)$remaining : ''); ?>" style="display:none;">
+						<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;"></div>
+						<div class="pbb-gc-modal__content" style="position:fixed;top:12%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:600px;width:92%;z-index:10001;">
+							<h3 style="margin:0 0 12px;">Add Manual Transaction</h3>
+							<div class="pbb-gc-manual-items"></div>
+							<button type="button" class="button pbb-gc-add-item" style="margin:8px 0;">Add item</button>
+							<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+								<button type="button" class="button pbb-gc-manual-cancel">Cancel</button>
+								<button type="button" class="button button-primary pbb-gc-manual-finish">Finish</button>
+							</div>
+						</div>
+						<div class="pbb-gc-manual-confirm" style="display:none;">
+							<div class="pbb-gc-modal__overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10002;"></div>
+							<div class="pbb-gc-modal__content" style="position:fixed;top:20%;left:50%;transform:translateX(-50%);background:#fff;padding:16px;border-radius:8px;max-width:420px;width:90%;z-index:10003;">
+								<h4 style="margin:0 0 8px;">Certificate Balance Notice</h4>
+								<p style="margin:0 0 12px;">
+									Certificate covers <strong class="pbb-gc-confirm-covered"></strong>.
+									Customer still owes <strong class="pbb-gc-confirm-owed"></strong>.
+								</p>
+								<div style="display:flex;justify-content:flex-end;gap:8px;">
+									<button type="button" class="button pbb-gc-manual-confirm-cancel">Cancel</button>
+									<button type="button" class="button button-primary pbb-gc-manual-confirm-continue">Continue</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				<?php endforeach; ?>
+			</div>
 			<?php endif; ?>
 		</div>
 		<script>
 		(function(){
+			document.addEventListener('click', function(event){
+				var toggle = event.target.closest('[data-accordion-toggle]');
+				if (toggle) {
+					var item = toggle.closest('.pbb-gc-accordion__item');
+					if (!item) return;
+					var body = item.querySelector('.pbb-gc-accordion__body');
+					if (!body) return;
+					body.style.display = body.style.display === 'block' ? 'none' : 'block';
+					return;
+				}
+			});
 			function closeModal(modal){
 				if(!modal) return;
 				modal.style.display = 'none';
