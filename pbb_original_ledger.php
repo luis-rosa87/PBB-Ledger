@@ -39,6 +39,14 @@ if (PBB_GC_ENABLE_ISSUE) {
   add_action('woocommerce_order_status_completed',  'pbb_gc_issue_after_payment', 30, 1);
 }
 
+add_filter('pre_wp_mail', function ($null, $atts) {
+	$subject = is_array($atts) ? ($atts['subject'] ?? '') : '';
+	if (is_string($subject) && stripos($subject, 'Paw B&B Gift Certificate') !== false) {
+		return false;
+	}
+	return $null;
+}, 10, 2);
+
 
 
 // Your gift cert product IDs + variation IDs (based on what you gave)
